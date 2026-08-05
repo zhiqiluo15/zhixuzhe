@@ -22,6 +22,39 @@
 
 ## 快速开始
 
+### 1. 配置 API Key
+
+```bash
+# 方式一：项目根 .env 文件（推荐，已 gitignore）
+echo DEEPSEEK_API_KEY=你的key > .env
+
+# 方式二：环境变量
+$env:DEEPSEEK_API_KEY='你的key'     # PowerShell
+export DEEPSEEK_API_KEY='你的key'    # Linux/macOS
+```
+
+获取 Key：https://platform.deepseek.com/api_keys
+
+### 2. 启动 Agent
+
+```bash
+# 安装依赖
+python -m pip install requests psutil numpy
+# GPU 验证需要 CUDA 版 PyTorch（RTX 50 系请用 cu128 源）
+python -m pip install torch --index-url https://download.pytorch.org/whl/cu128
+
+# 启动交互式 Agent
+python -m engine.core
+```
+
+REPL 命令：
+- 直接输入文字 → 普通对话（自动调工具）
+- `task <目标>` → 自主任务模式（规划→执行→综合）
+- `reset` → 重置对话历史
+- `exit` → 退出
+
+### 3. 单独运行工具
+
 ```bash
 # 感知身体：检测宿主机并生成身体档案（写入 memory/body/）
 python engine/tools/detect_host.py
@@ -29,8 +62,6 @@ python engine/tools/detect_host.py
 # 体检 GPU：验证 CUDA 算力
 python engine/tools/verify_gpu.py
 ```
-
-依赖：Python 3.10+，`pip install psutil numpy`；GPU 验证需要 CUDA 版 PyTorch（RTX 50 系请用 cu128 源）。
 
 ## 发布一个进化版
 
