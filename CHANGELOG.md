@@ -133,3 +133,11 @@
 - **动机**：`loop.py` 的 `Agent.run()` 和 `task.py` 的 `TaskRunner._execute_step()` 各自内联了完全相同的工具调用循环（思考→工具调用→执行→再思考），复制粘贴。
 - **改动**：新建 `engine/core/react.py`，抽取 `react_loop(brain, messages, tools, max_rounds)` 函数；`loop.py` 和 `task.py` 各删掉 ~15 行内联循环，改为一行调用。
 - **影响**：纯重构，不改变任何行为。后续新增交互模式（流式、批量等）只需改一处。
+
+### API 调用容错：自动重试机制（2026-08-05）
+- **动机**：`DeepSeekAPIBrain.think()` 无任何容错——API 抖一下整个 Agent 崩溃。这是当前最痛点。
+- **改动**：`think()` 方法内增加重试循环（最多 3 次）。
+  - 可重试：429 限流、5xx 服务端错误、网络超时/连接错误，指数退避 1s→2s。
+  - 不可重试：4xx 非 429（401 认证失败、400 参数错误），直接抛出。
+  - 3 次全败后返回含错误信息的 Message，而非抛异常崩掉 Agent。
+- **影响**：API 抖动不再导致崩溃；调用方（Agent/TaskRunner）无需感知重试逻辑。

@@ -1,6 +1,7 @@
 """DeepSeek API 大脑 —— 通过云端 API 调用思考"""
 
 import os
+import time
 from pathlib import Path
 
 import requests
@@ -44,6 +45,12 @@ class DeepSeekAPIBrain(Brain):
         messages: list[Message],
         tools: list[dict] | None = None,
     ) -> Message:
+        """调用 DeepSeek API，带自动重试（最多 3 次）。
+
+        可重试：429（限流）、5xx（服务端错误）、网络超时/连接错误。
+        不可重试：4xx 非 429（如 401 认证失败、400 参数错误），直接抛出。
+        3 次全败后返回含错误信息的 Message，不会崩溃。
+        """
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -56,20 +63,43 @@ class DeepSeekAPIBrain(Brain):
         if tools:
             payload["tools"] = tools
 
-        resp = requests.post(
-            f"{self.base_url}/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=60,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        last_error = ""
+        for attempt in range(3):
+            try:
+                resp = requests.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=60,
+                )
 
-        choice = data["choices"][0]["message"]
+                if resp.ok:
+                    data = resp.json()
+                    choice = data["choices"][0]["message"]
+                    return Message(
+                        role="assistant",
+                        content=choice.get("content") or "",
+                        tool_calls=choice.get("tool_calls"),
+                    )
+
+                # 429 限流 / 5xx 服务端错误 → 可重试
+                if resp.status_code == 429 or resp.status_code >= 500:
+                    last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                else:
+                    # 4xx 非 429（401/400 等）→ 不重试，直接抛
+                    resp.raise_for_status()
+
+            except requests.RequestException as e:
+                last_error = str(e)[:200]
+
+            # 指数退避：1s, 2s（最后一次不等待）
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+
+        # 3 次全败，返回错误消息而非崩溃
         return Message(
             role="assistant",
-            content=choice.get("content") or "",
-            tool_calls=choice.get("tool_calls"),
+            content=f"[API 调用失败（重试 3 次后）] {last_error}",
         )
 
     def _serialize(self, msg: Message) -> dict:
