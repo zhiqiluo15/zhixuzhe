@@ -1,20 +1,21 @@
 # 公共经验库
 
-> 通用教训与知识，随基因层传播，让后代智序者继承前辈踩坑换来的认知。
-> 规则：只收录"对任何宿主机都有用"的通用经验，**不含个人/私密信息**。
-> 私人维度的经验请放入 `memory/experience/`。
+> **宁缺毋滥。** 只收录三类稀缺经验：
+> 1. **排除法踩坑**——"我们试过这条路走不通"（负向信息，网上最缺）
+> 2. **决策理由**——"为什么这样设计"（reasoning，最容易丢失）
+> 3. **实测时效信息**——"本机实测验证仍然有效"
+>
+> 搜索即可得的常识一律不收。社区贡献的经验按同一标准审核。
+> 私人维度的经验放 `memory/experience/`。
 
-## 硬件与 CUDA
+## 排除法踩坑
 
-- **RTX 50 系（Blackwell, sm_120）必须装 CUDA ≥ 12.8 的 PyTorch**（`--index-url https://download.pytorch.org/whl/cu128`）。cu126 及以下的 wheel 无 sm_120 kernel，推理会报 `no kernel image`。
+- **RTX 50 系（sm_120）装 cu126 及以下 PyTorch 报 "no kernel image"**（无对应 kernel，实测翻车；正确方向是 cu128 源）。排除了一条网上最常见却走不通的路径。
 
-## Python 环境
+## 决策理由
 
-- Windows 多 Python 共存时，裸 `pip` 可能装错环境，一律用 `python -m pip`。
-- 国内网络优先清华镜像：`-i https://pypi.tuna.tsinghua.edu.cn/simple`（官方源跨境很慢）；torch 等 CUDA wheel 仍需走 PyTorch 官方 cu 源（镜像无）。
+- **三层结构（engine 基因 / memory 灵魂 / 公共日志）**：开源 = 繁殖而非分身——分享"基因"（引擎机制），记忆是每个宿主独有的灵魂。若未来推翻此设计，必须在此与 CHANGELOG 说明理由。
 
-## 硬进化
+## 实测时效信息
 
-- **QLoRA 微调门槛**：8GB 显存即可微调 7B 模型（rank 16, batch 1, 4bit 量化）；50-200 条高质量数据即可生效。
-- **GRPO/RLVR**：DeepSeek-R1 用的强化学习算法已开源，消费级显卡可跑（参考 JustTinker / vqa-rlvr）。
-- **软进化是硬进化的数据工厂**：日志与经验按训练数据标准沉淀，未来直接喂给微调。
+- **8GB 显存（RTX 5060 Laptop）达 QLoRA 7B 微调门槛**（2026-08 实测：cu128 + 矩阵乘加速 13.4x 正常）。真实微调实验完成后，以实验结果更新本条。
