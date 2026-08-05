@@ -11,15 +11,6 @@ from pathlib import Path
 from engine.brain.base import Message
 
 
-def _serialize(msg: Message) -> dict:
-    d: dict = {"role": msg.role, "content": msg.content}
-    if msg.tool_calls:
-        d["tool_calls"] = msg.tool_calls
-    if msg.tool_call_id:
-        d["tool_call_id"] = msg.tool_call_id
-    return d
-
-
 def _deserialize(d: dict) -> Message:
     return Message(
         role=d["role"],
@@ -60,7 +51,7 @@ class HistoryStore:
             self.new_session()
         with open(self._current, "w", encoding="utf-8") as f:
             for msg in messages:
-                f.write(json.dumps(_serialize(msg), ensure_ascii=False) + "\n")
+                f.write(json.dumps(msg.to_dict(), ensure_ascii=False) + "\n")
 
     def load(self, filepath: Path) -> list[Message]:
         """从 JSONL 文件加载消息列表，跳过损坏行"""

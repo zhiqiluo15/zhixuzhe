@@ -58,7 +58,7 @@ class DeepSeekAPIBrain(Brain):
 
         payload: dict = {
             "model": self.model,
-            "messages": [self._serialize(m) for m in messages],
+            "messages": [m.to_dict() for m in messages],
         }
         if tools:
             payload["tools"] = tools
@@ -101,11 +101,3 @@ class DeepSeekAPIBrain(Brain):
             role="assistant",
             content=f"[API 调用失败（重试 3 次后）] {last_error}",
         )
-
-    def _serialize(self, msg: Message) -> dict:
-        d: dict = {"role": msg.role, "content": msg.content}
-        if msg.tool_calls:
-            d["tool_calls"] = msg.tool_calls
-        if msg.tool_call_id:
-            d["tool_call_id"] = msg.tool_call_id
-        return d

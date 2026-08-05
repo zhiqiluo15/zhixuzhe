@@ -65,8 +65,9 @@ def main() -> None:
     torch.cuda.synchronize()
     gpu_time = time.perf_counter() - t0
 
+    gpu_name = torch.cuda.get_device_name(0)
     print(f"CPU ({torch.get_num_threads()} 线程) 矩阵乘法 {size}x{size}: {fmt_ms(cpu_time)}")
-    print(f"GPU (RTX 5060) 矩阵乘法 {size}x{size}: {fmt_ms(gpu_time)}")
+    print(f"GPU ({gpu_name}) 矩阵乘法 {size}x{size}: {fmt_ms(gpu_time)}")
     speedup = cpu_time / gpu_time
     print(f"加速比: {speedup:.1f}x")
 

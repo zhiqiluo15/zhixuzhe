@@ -34,7 +34,10 @@ def react_loop(
         messages.append(response)
         for tc in response.tool_calls:
             name = tc["function"]["name"]
-            args = json.loads(tc["function"]["arguments"])
+            try:
+                args = json.loads(tc["function"]["arguments"])
+            except json.JSONDecodeError:
+                args = {}
             result = tools.execute(name, **args)
             # 截断过长输出，防止撑爆上下文窗口
             if len(result) > MAX_TOOL_OUTPUT_CHARS:

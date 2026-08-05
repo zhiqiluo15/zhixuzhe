@@ -16,18 +16,7 @@ class Recorder:
         """记录一次交互"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         entry = f"## {timestamp}\n\n**问**：{user_input}\n\n**答**：{response}\n\n---\n\n"
-
-        filepath = self._today_file()
-        if not filepath.exists():
-            date_str = datetime.now().strftime("%Y-%m-%d")
-            header = f"# 智序者日记 - {date_str}\n\n"
-            entry = header + entry
-
-        with open(filepath, "a", encoding="utf-8") as f:
-            f.write(entry)
-
-    def _today_file(self) -> Path:
-        return self.diary_dir / f"{datetime.now().strftime('%Y%m%d')}.md"
+        self._write(entry)
 
     def record_task(
         self,
@@ -48,12 +37,16 @@ class Recorder:
         for i, r in enumerate(step_results):
             entry += f"- 步骤 {i + 1}: {r[:200]}{'...' if len(r) > 200 else ''}\n"
         entry += f"\n**最终结论**：\n{final_answer}\n\n---\n\n"
+        self._write(entry)
 
+    def _write(self, entry: str) -> None:
+        """写条目到当日日记文件，首次写入时自动加 header"""
         filepath = self._today_file()
         if not filepath.exists():
             date_str = datetime.now().strftime("%Y-%m-%d")
-            header = f"# 智序者日记 - {date_str}\n\n"
-            entry = header + entry
-
+            entry = f"# 智序者日记 - {date_str}\n\n" + entry
         with open(filepath, "a", encoding="utf-8") as f:
             f.write(entry)
+
+    def _today_file(self) -> Path:
+        return self.diary_dir / f"{datetime.now().strftime('%Y%m%d')}.md"
