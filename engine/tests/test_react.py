@@ -18,6 +18,7 @@ from engine.core.recorder import Recorder
 from engine.core.react import react_loop
 from engine.core.loop import Agent
 from engine.core.task import TaskRunner
+from engine.core.history import HistoryStore
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -307,6 +308,129 @@ def test_task_runner_plan_fallback():
 
 
 # ═══════════════════════════════════════════
+# HistoryStore 测试
+# ═══════════════════════════════════════════
+
+import shutil as _shutil
+_conv_dir = PROJECT_ROOT / "memory" / "conversations"
+
+
+def _clean_conversations():
+    """清理会话文件确保测试隔离"""
+    if _conv_dir.exists():
+        _shutil.rmtree(_conv_dir)
+
+
+def test_history_save_load():
+    """HistoryStore 基本存取"""
+    _clean_conversations()
+    print("\n" + "=" * 50)
+    print("测试 8: HistoryStore 保存和加载")
+    store = HistoryStore(root=PROJECT_ROOT)
+    store.new_session()
+
+    msgs = [
+        Message(role="user", content="你好"),
+        Message(role="assistant", content="你好，我是智序者。"),
+    ]
+    store.save(msgs)
+
+    loaded = store.load(store._current)
+    assert len(loaded) == 2
+    assert loaded[0].role == "user"
+    assert loaded[0].content == "你好"
+    assert loaded[1].role == "assistant"
+    assert "智序者" in loaded[1].content
+    print("  ✅ 通过：保存 2 条消息，加载后内容一致")
+
+
+def test_history_tool_calls_roundtrip():
+    """HistoryStore 工具调用消息序列化"""
+    _clean_conversations()
+    print("\n" + "=" * 50)
+    print("测试 9: HistoryStore 工具调用消息往返")
+    store = HistoryStore(root=PROJECT_ROOT)
+    store.new_session()
+
+    msgs = [
+        Message(role="user", content="3+5=?"),
+        Message(
+            role="assistant", content="",
+            tool_calls=[{
+                "id": "call_x", "type": "function",
+                "function": {"name": "add", "arguments": '{"a":3,"b":5}'},
+            }],
+        ),
+        Message(role="tool", content="8", tool_call_id="call_x"),
+        Message(role="assistant", content="答案是 8"),
+    ]
+    store.save(msgs)
+
+    loaded = store.load(store._current)
+    assert len(loaded) == 4
+    assert loaded[1].tool_calls is not None
+    assert loaded[1].tool_calls[0]["function"]["name"] == "add"
+    assert loaded[2].tool_call_id == "call_x"
+    assert "8" in loaded[3].content
+    print("  ✅ 通过：tool_calls 和 tool_call_id 序列化/反序列化正确")
+
+
+def test_agent_with_history_store():
+    """Agent 带 HistoryStore，交互后持久化"""
+    _clean_conversations()
+    print("\n" + "=" * 50)
+    print("测试 10: Agent 带 HistoryStore 持久化")
+    store = HistoryStore(root=PROJECT_ROOT)
+    store.new_session()
+
+    brain = MockBrain([
+        Message(role="assistant", content="我叫智序者。"),
+    ])
+    tools = build_tools()
+    recorder = Recorder(root=PROJECT_ROOT)
+
+    agent = Agent(brain=brain, tools=tools, recorder=recorder, history_store=store)
+    assert len(agent.history) == 0
+
+    response = agent.run("你是谁？")
+    assert "智序者" in response
+    assert len(agent.history) == 2  # 内存有 2 条
+
+    # 从磁盘验证
+    loaded = store.load(store._current)
+    assert len(loaded) == 2
+    assert loaded[0].role == "user"
+    assert loaded[1].role == "assistant"
+    print("  ✅ 通过：Agent 交互后历史正确写入磁盘")
+
+
+def test_agent_history_restore():
+    """Agent 从 HistoryStore 恢复历史"""
+    _clean_conversations()
+    print("\n" + "=" * 50)
+    print("测试 11: Agent 恢复上次会话")
+    store = HistoryStore(root=PROJECT_ROOT)
+    store.new_session()
+
+    # 模拟上次会话留下 2 条消息
+    store.save([
+        Message(role="user", content="上一次的问题"),
+        Message(role="assistant", content="上一次的回答"),
+    ])
+
+    # 新建 Agent 应自动恢复
+    brain = MockBrain([])
+    tools = build_tools()
+    recorder = Recorder(root=PROJECT_ROOT)
+
+    agent = Agent(brain=brain, tools=tools, recorder=recorder, history_store=store)
+    assert len(agent.history) == 2
+    assert agent.history[0].content == "上一次的问题"
+    assert agent.history[1].content == "上一次的回答"
+    print("  ✅ 通过：Agent 启动自动恢复上次会话历史")
+
+
+# ═══════════════════════════════════════════
 # 运行所有测试
 # ═══════════════════════════════════════════
 
@@ -324,6 +448,10 @@ if __name__ == "__main__":
         test_agent_tool_mode,
         test_task_runner,
         test_task_runner_plan_fallback,
+        test_history_save_load,
+        test_history_tool_calls_roundtrip,
+        test_agent_with_history_store,
+        test_agent_history_restore,
     ]
 
     for test in tests:

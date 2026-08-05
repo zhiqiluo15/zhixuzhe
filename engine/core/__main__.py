@@ -29,6 +29,7 @@ def main() -> None:
     from engine.tools.registry import ToolRegistry, Tool
     from engine.core.loop import Agent
     from engine.core.recorder import Recorder
+    from engine.core.history import HistoryStore
 
     # ── 大脑 ──
     try:
@@ -55,9 +56,13 @@ def main() -> None:
 
     # ── 记忆 ──
     recorder = Recorder(root=project_root)
+    history_store = HistoryStore(root=project_root)
 
     # ── 组装并启动 ──
-    agent = Agent(brain=brain, tools=tools, recorder=recorder)
+    agent = Agent(
+        brain=brain, tools=tools,
+        recorder=recorder, history_store=history_store,
+    )
     agent.interactive()
 
 

@@ -10,6 +10,7 @@ from engine.tools.registry import ToolRegistry
 from engine.core.recorder import Recorder
 from engine.core.react import react_loop
 from engine.core.task import TaskRunner
+from engine.core.history import HistoryStore
 
 SYSTEM_PROMPT = """你是智序者（zhixuzhe），一个以 DeepSeek 为基座的智能助手。
 
@@ -38,13 +39,24 @@ class Agent:
         brain: Brain,
         tools: ToolRegistry,
         recorder: Recorder,
+        history_store: HistoryStore | None = None,
     ):
         self.brain = brain
         self.tools = tools
         self.recorder = recorder
+        self.history_store = history_store
         self.history: list[Message] = []
         self.system = Message(role="system", content=SYSTEM_PROMPT)
         self.task_runner = TaskRunner(brain, tools, recorder)
+
+        # 尝试恢复上次会话
+        if history_store:
+            latest = history_store.latest_session()
+            if latest:
+                self.history = history_store.load(latest)
+                history_store._current = latest
+            else:
+                history_store.new_session()
 
     def run(self, user_input: str) -> str:
         """单次交互：接收用户输入，返回响应"""
@@ -57,6 +69,10 @@ class Agent:
         self.history.append(user_msg)
         self.history.append(response)
         self.recorder.record(user_input, response.content)
+
+        # 持久化对话历史
+        if self.history_store:
+            self.history_store.save(self.history)
 
         return response.content
 
@@ -77,6 +93,8 @@ class Agent:
                 break
             if user_input.lower() == "reset":
                 self.history.clear()
+                if self.history_store:
+                    self.history_store.new_session()
                 print("对话已重置。")
                 continue
             if user_input.lower() == "help":

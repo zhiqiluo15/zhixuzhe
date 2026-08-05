@@ -150,3 +150,13 @@
   - 默认模型从 `deepseek-chat` 切到 `deepseek-v4-pro`（1M 上下文 / MIT 许可）。
   - `engine/core/react.py` 新增 `MAX_TOOL_OUTPUT_CHARS = 32000`，工具输出超过 32000 字符自动截断并标注原长度。
 - **影响**：基座升级到最新旗舰模型，上下文容量 8 倍增长（128K → 1M）；截断阈值基于 1M 上下文重新评估（约 1.6% 容量），安全且充裕。
+
+### 对话历史持久化（2026-08-05）
+- **动机**：之前对话历史纯内存存储，重启 Agent 后上下文全丢——等效失忆。这是当前最严重的功能缺陷。
+- **改动**：
+  - 新建 `engine/core/history.py`，`HistoryStore` 类：JSONL 格式存取会话文件到 `memory/conversations/`。
+  - `Agent.__init__` 接受可选 `history_store` 参数：有则启动时自动恢复最近会话，无则行为不变。
+  - `Agent.run()` 每次交互后自动保存完整历史到磁盘。
+  - `Agent.reset` 时开新会话文件。
+  - `__main__.py` 入口传入 `HistoryStore`，REPL 模式默认启用持久化。
+- **影响**：重启后保留对话上下文；reset 自动归档旧会话、开新会话；`history_store=None` 时行为完全兼容旧代码。
