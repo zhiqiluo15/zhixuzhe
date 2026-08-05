@@ -1,0 +1,65 @@
+"""智序者入口：python -m engine.core"""
+
+import io
+import sys
+from pathlib import Path
+
+# 工具函数 stdout 捕获包装
+def _capture_stdout(func):
+
+    def wrapper(**kwargs):
+        buf = io.StringIO()
+        old = sys.stdout
+        sys.stdout = buf
+        try:
+            func(**kwargs)
+        finally:
+            sys.stdout = old
+        return buf.getvalue()
+
+    return wrapper
+
+
+def main() -> None:
+    # 确保项目根在 sys.path 开头
+    project_root = Path(__file__).resolve().parent.parent.parent
+    sys.path.insert(0, str(project_root))
+
+    from engine.brain.deepseek_api import DeepSeekAPIBrain
+    from engine.tools.registry import ToolRegistry, Tool
+    from engine.core.loop import Agent
+    from engine.core.recorder import Recorder
+
+    # ── 大脑 ──
+    try:
+        brain = DeepSeekAPIBrain()
+    except ValueError as e:
+        print(f"错误: {e}")
+        sys.exit(1)
+
+    # ── 手脚 ──
+    from engine.tools.detect_host import main as detect_host_main
+    from engine.tools.verify_gpu import main as verify_gpu_main
+
+    tools = ToolRegistry()
+    tools.register(Tool(
+        name="detect_host",
+        description="检测宿主机信息：操作系统、CPU、内存、磁盘、Python 版本、GPU、CUDA、PyTorch",
+        func=_capture_stdout(detect_host_main),
+    ))
+    tools.register(Tool(
+        name="verify_gpu",
+        description="验证 GPU 算力：检查 CUDA 可用性，运行矩阵乘基准测试对比 CPU vs GPU 性能",
+        func=_capture_stdout(verify_gpu_main),
+    ))
+
+    # ── 记忆 ──
+    recorder = Recorder(root=project_root)
+
+    # ── 组装并启动 ──
+    agent = Agent(brain=brain, tools=tools, recorder=recorder)
+    agent.interactive()
+
+
+if __name__ == "__main__":
+    main()

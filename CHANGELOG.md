@@ -84,8 +84,28 @@
   2. **回顾**：新任务开始前先读本日志，识别已验证的设计与已解决的坑；
   3. **优化**：新方案优于旧逻辑时允许推翻旧设计，但必须在本日志说明理由。
 
-### 当前状态（2026-08-05 重构后）
-- **大脑**：DeepSeek 基座（经 IDE 孵化）——运转中。
-- **手脚**：`engine/tools/detect_host.py`、`engine/tools/verify_gpu.py`——均已验证。
-- **硬进化就绪度**：软件前置条件全部就绪（cu128 PyTorch + numpy + 8GB 显存达标）。
-- **下一步候选**：QLoRA 微调实验 / 搭下一个手脚 / 搭建智序者自身运行框架。
+### Agent 主循环落地：大脑可插拔 + 工具注册 + 记忆记录（2026-08-05）
+- **动机**：项目两个手脚（detect_host / verify_gpu）已就绪但孤立运行，无中枢调度——"有零件没系统"。
+- **决策**：不继续搭单个工具，先建 Agent 主循环（感知→思考→行动→记录），让智序者"活过来"再自己说缺什么手脚。
+- **大脑设计**：抽象 `Brain` 接口（`engine/brain/base.py`），首个实现为 `DeepSeekAPIBrain`（`engine/brain/deepseek_api.py`）。
+  - 先 API、后本地的渐进路线：API 让闭环立刻能转，未来切换本地模型只改一个后端。
+  - 本地模型不是"另一套循环"——循环只有一层，大脑是可插拔插件。
+- **工具注册表**：`engine/tools/registry.py` —— `Tool`（name/description/func/parameters）+ `ToolRegistry`，支持 OpenAI 工具调用协议。
+  - 现有两个工具通过 stdout 捕获包装（不改动原文件），注册为标准 Tool。
+- **记忆记录器**：`engine/core/recorder.py` —— 每次交互写入 `memory/diary/YYYYMMDD.md`，格式与已有日记一致。
+- **入口**：`python -m engine.core` 启动交互式 REPL。
+- **新文件结构**：
+  - `engine/brain/` —— 大脑模块（base + deepseek_api）
+  - `engine/core/` —— Agent 主循环 + 记忆记录 + 入口
+  - `engine/tools/registry.py` —— 工具注册表
+  - 各层 `__init__.py`
+- **依赖**：`requests`（已有，2.32.5）；需设置 `DEEPSEEK_API_KEY` 环境变量。
+- **验证**：需在设置 API Key 后 `python -m engine.core` 测试交互。
+
+### 当前状态（2026-08-05 循环落地后）
+- **大脑**：DeepSeek API（`engine/brain/deepseek_api.py`）——已编码，待 API Key 验证；本地模型后端留待后续。
+- **手脚**：`detect_host.py`、`verify_gpu.py` —— 已通过 ToolRegistry 接入 Agent 主循环。
+- **循环**：Agent 主循环（ReAct 模式：思考→工具调用→再思考）——已编码，`python -m engine.core` 启动。
+- **记忆**：每次交互自动写入 `memory/diary/`。
+- **硬进化就绪度**：软件前置条件全部就绪。
+- **下一步候选**：设置 API Key 实测首轮交互 / QLoRA 微调实验 / 本地模型后端。
