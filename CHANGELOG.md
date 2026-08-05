@@ -102,10 +102,29 @@
 - **依赖**：`requests`（已有，2.32.5）；需设置 `DEEPSEEK_API_KEY` 环境变量。
 - **验证**：需在设置 API Key 后 `python -m engine.core` 测试交互。
 
-### 当前状态（2026-08-05 循环落地后）
-- **大脑**：DeepSeek API（`engine/brain/deepseek_api.py`）——已编码，待 API Key 验证；本地模型后端留待后续。
-- **手脚**：`detect_host.py`、`verify_gpu.py` —— 已通过 ToolRegistry 接入 Agent 主循环。
-- **循环**：Agent 主循环（ReAct 模式：思考→工具调用→再思考）——已编码，`python -m engine.core` 启动。
-- **记忆**：每次交互自动写入 `memory/diary/`。
-- **硬进化就绪度**：软件前置条件全部就绪。
-- **下一步候选**：设置 API Key 实测首轮交互 / QLoRA 微调实验 / 本地模型后端。
+### 自主任务环路落地（2026-08-05）
+- **动机**：智序者有 Agent 的循环骨架，但缺自主性——只能"问一句答一句"，不能自己定目标、拆步骤、逐步执行。
+- **核心认知**：自主性 vs 自进化是正交的两条轴。应该"先自主再进化"——自主任务产生的"规划→执行→结果→反思"四元组才是 QLoRA 的高质量训练数据。
+- **实现**：`engine/core/task.py` —— `TaskRunner`，四阶段流水线：
+  1. **规划**（`_plan`）：大脑将目标分解为 JSON 步骤列表，带兜底（解析失败则退回单步）
+  2. **执行**（`_execute_step`）：每步独立 ReAct 循环（脑+工具），后续步骤可看到前面步骤结果作为上下文
+  3. **综合**（`_synthesize`）：大脑汇总所有步骤结果，生成最终结论
+  4. **记录**（`recorder.record_task`）：结构化写入 diary（目标/计划/每步结果/最终结论）
+- **集成**：REPL 新增 `task <目标>` 命令触发任务模式；`help` 命令显示可用操作。
+- **记忆增强**：`engine/core/recorder.py` 新增 `record_task()`，任务级日记与普通对话日记共存于 `memory/diary/`。
+- **验证**：实测目标"全面检测硬件并判断 QLoRA 条件"——自主规划 3 步（detect_host → verify_gpu → 综合），全通，输出分层结论（舒适区/极限区/不可行 + 具体模型名和参数）。
+- **资源**：纯文本模块（task.py 约 140 行），每任务约 N+2 次 API 调用（N=步数），DeepSeek API 价格可忽略。
+
+### API Key 安全机制（2026-08-05）
+- **手动 .env 解析**：`engine/utils.py` 的 `load_dotenv(root)`，不引入 python-dotenv 依赖，任何模块可复用。
+- **三级优先级**：构造参数 > 项目根 `.env` 文件 > `DEEPSEEK_API_KEY` 环境变量。
+- **隔离**：`.env` 已加入 `.gitignore`；`engine/.env.example` 作为模板（基因层，可开源）。
+
+### 当前状态（2026-08-05 任务环路落地后）
+- **大脑**：DeepSeek API（已验证连通 + 工具调用）；未来可插拔本地模型。
+- **手脚**：`detect_host.py`、`verify_gpu.py` —— 已通过 ToolRegistry 接入循环。
+- **对话模式**：普通一问一答 + 可选工具调用（ReAct）——正常运转。
+- **任务模式**：`task <目标>` 触发自主规划、多步执行、综合结论——已验证全通。
+- **记忆**：对话交互和任务执行均自动写入 `memory/diary/`，任务级日记含完整执行链路。
+- **硬进化就绪度**：软件前置条件全部就绪；训练数据已开始自然积累。
+- **下一步候选**：加文件操作/命令执行等手脚（A 计划）/ 搭建 QLoRA 数据管线（C 计划）/ 对话历史持久化。
