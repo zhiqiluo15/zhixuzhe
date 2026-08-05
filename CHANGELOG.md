@@ -120,14 +120,44 @@
 - **三级优先级**：构造参数 > 项目根 `.env` 文件 > `DEEPSEEK_API_KEY` 环境变量。
 - **隔离**：`.env` 已加入 `.gitignore`；`engine/.env.example` 作为模板（基因层，可开源）。
 
-### 当前状态（2026-08-05 任务环路落地后）
-- **大脑**：DeepSeek API（已验证连通 + 工具调用）；未来可插拔本地模型。
-- **手脚**：`detect_host.py`、`verify_gpu.py` —— 已通过 ToolRegistry 接入循环。
-- **对话模式**：普通一问一答 + 可选工具调用（ReAct）——正常运转。
-- **任务模式**：`task <目标>` 触发自主规划、多步执行、综合结论——已验证全通。
-- **记忆**：对话交互和任务执行均自动写入 `memory/diary/`，任务级日记含完整执行链路。
-- **硬进化就绪度**：软件前置条件全部就绪；训练数据已开始自然积累。
-- **下一步候选**：加文件操作/命令执行等手脚（A 计划）/ 搭建 QLoRA 数据管线（C 计划）/ 对话历史持久化。
+### v0.5 最终状态（2026-08-05 四轮迭代后）
+
+#### 大脑
+- 基座：**DeepSeek V4-Pro**（API 模型名 `deepseek-v4-pro`），1M 上下文，MIT 许可。
+- 抽象：`Brain` 接口（`engine/brain/base.py`），`DeepSeekAPIBrain` 为当前唯一实现。
+- 容错：429/5xx/网络错误自动重试（最多 3 次，指数退避 1s→2s），3 次全败返回错误 Message 而非崩溃。
+- 未来：可插拔本地模型（只改后端，不动循环）。
+
+#### 手脚
+- 仅 2 个工具：`detect_host`（宿主机检测）、`verify_gpu`（GPU 算力验证）。
+- 通过 `ToolRegistry` 注册为 OpenAI 工具调用协议，接入 Agent 循环。
+- 工具输出超过 32000 字符自动截断（`react_loop` 内置安全网）。
+- **当前最大短板：缺文件读写、命令执行等通用手脚。**
+
+#### 核心循环
+- `engine/core/react.py`：共用 ReAct 循环（思考→工具调用→执行→再思考），Agent 对话和 TaskRunner 步骤执行统一调用。
+- `engine/core/loop.py`：Agent 主循环，普通对话 / `task` 任务模式双模式 REPL。
+- `engine/core/task.py`：TaskRunner 四阶段流水线（规划→执行→综合→记录），规划失败兜底单步。
+- `engine/core/history.py`：`HistoryStore`——JSONL 格式对话持久化，重启自动恢复上次会话，reset 归档旧会话、开新文件。
+- 启动/恢复/reset 均有 `[HistoryStore]` 日志输出，方便排查。
+
+#### 记忆
+- `Recorder`：每次交互写入 `memory/diary/YYYYMMDD.md`；`record_task()` 结构化写入任务级日记。
+- `HistoryStore`：对话历史持久化到 `memory/conversations/xxxx.jsonl`。
+- **已知缺陷：记忆"只写不读"——日记和经验未被回读到上下文中，自进化闭环缺少"回顾"环节。**
+
+#### 测试
+- `engine/tests/test_react.py`：16 个单元测试覆盖 react_loop / Agent / TaskRunner / HistoryStore，含正常路径和边界场景（空文件、损坏行、多次会话、reset 行为等）。
+- 纯 Python 标准库，不依赖 API Key。
+
+#### 已知差距
+| 差距 | 说明 |
+|---|---|
+| 手脚太少 | 只有 2 个硬件工具，无法读写文件、执行命令 |
+| 记忆只写不读 | 日记积累了但不回注入上下文，自进化环未闭合 |
+| 无安全边界 | 加入文件/命令工具前需设计路径白名单、命令白名单、超时、确认机制 |
+| 无 QLoRA 管线 | TaskRunner 产生的四元组需筛选/清洗/转换后才能喂训练 |
+| stdout 捕获 hack | `__main__.py` 通过劫持 sys.stdout 包装工具，待工具接口统一后重构 |
 
 ### 重构：抽取共用 ReAct 循环（2026-08-05）
 - **动机**：`loop.py` 的 `Agent.run()` 和 `task.py` 的 `TaskRunner._execute_step()` 各自内联了完全相同的工具调用循环（思考→工具调用→执行→再思考），复制粘贴。
