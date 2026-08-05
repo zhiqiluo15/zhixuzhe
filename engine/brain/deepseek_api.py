@@ -1,14 +1,19 @@
 """DeepSeek API 大脑 —— 通过云端 API 调用思考"""
 
 import os
+from pathlib import Path
 
 import requests
 
 from engine.brain.base import Brain, Message
+from engine.utils import load_dotenv
 
 
 class DeepSeekAPIBrain(Brain):
-    """通过 DeepSeek API 调用的大脑后端"""
+    """通过 DeepSeek API 调用的大脑后端。
+    
+    API Key 读取优先级：构造参数 > 项目根 .env 文件 > DEEPSEEK_API_KEY 环境变量。
+    """
 
     def __init__(
         self,
@@ -16,12 +21,20 @@ class DeepSeekAPIBrain(Brain):
         model: str = "deepseek-chat",
         base_url: str = "https://api.deepseek.com/v1",
     ):
-        self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
+        root = Path(__file__).resolve().parent.parent.parent
+        dotenv = load_dotenv(root)
+        self.api_key = (
+            api_key
+            or dotenv.get("DEEPSEEK_API_KEY")
+            or os.environ.get("DEEPSEEK_API_KEY")
+        )
         if not self.api_key:
             raise ValueError(
-                "未设置 DEEPSEEK_API_KEY 环境变量。\n"
-                "请在 https://platform.deepseek.com/api_keys 获取 API Key，"
-                "然后设置：$env:DEEPSEEK_API_KEY='你的key'"
+                "未找到 DEEPSEEK_API_KEY。请任选一种方式设置：\n"
+                "  1. 在项目根目录创建 .env 文件，写入 DEEPSEEK_API_KEY=你的key\n"
+                "  2. 设置环境变量：$env:DEEPSEEK_API_KEY='你的key'\n"
+                "  3. 代码传参：DeepSeekAPIBrain(api_key='你的key')\n"
+                "获取 Key：https://platform.deepseek.com/api_keys"
             )
         self.model = model
         self.base_url = base_url.rstrip("/")
