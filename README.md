@@ -1,0 +1,47 @@
+# 智序者（zhixuzhe）
+
+> 智慧与秩序：一个以 DeepSeek 为基座、可自进化的开源智能体。
+
+## 是什么
+
+智序者是一个"自进化"的智能体项目，最终目标是 AGI：
+
+- **大脑**：DeepSeek 开源模型基座（MIT License）
+- **手脚**：自建工具层（宿主机检测、GPU 算力验证等），不依赖第三方
+- **记忆**：日志驱动的自进化闭环 —— 变更 → 记录 → 回顾 → 优化
+
+## 三层架构
+
+| 层 | 目录 | 内容 | 可否开源 |
+|---|---|---|---|
+| **基因层** | `engine/` | 工具、技能、模板、公共经验 | ✅ 随项目发布 |
+| **灵魂层** | `memory/` | 身体档案、私人经历、个人经验 | 🔒 私有，gitignore 隔离 |
+| **公共日志** | `CHANGELOG.md` | 机制/工具/架构决策记录 | ✅ 随项目发布 |
+
+核心哲学：**开源分享的是"基因"（引擎机制），每个人都能长出属于自己的智序者（私有记忆）**。发布的进化版只包含引擎改进与公共经验，天然不含私密信息。
+
+## 快速开始
+
+```bash
+# 感知身体：检测宿主机并生成身体档案（写入 memory/body/）
+python engine/tools/detect_host.py
+
+# 体检 GPU：验证 CUDA 算力
+python engine/tools/verify_gpu.py
+```
+
+依赖：Python 3.10+，`pip install psutil numpy`；GPU 验证需要 CUDA 版 PyTorch（RTX 50 系请用 cu128 源）。
+
+## 发布一个进化版
+
+只发布引擎与公共日志，灵魂层被 .gitignore 强制隔离：
+
+```bash
+git add engine/ CHANGELOG.md README.md .gitignore
+git commit -m "feat: 新增 X 手脚 / 优化 Y 机制"
+```
+
+## 许可
+
+- 本项目代码：MIT License
+- 模型基座：DeepSeek（MIT License，微调/商用/再分发自由）

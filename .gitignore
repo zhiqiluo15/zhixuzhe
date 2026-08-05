@@ -1,0 +1,18 @@
+# 灵魂层（私有记忆）—— 永不进入公共仓库
+# 智序者的记忆、身体档案、私人经历属于每个宿主自己
+memory/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
