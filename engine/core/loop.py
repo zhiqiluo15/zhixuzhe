@@ -55,8 +55,11 @@ class Agent:
             if latest:
                 self.history = history_store.load(latest)
                 history_store._current = latest
+                print(f"[HistoryStore] 已恢复会话: {latest.name} "
+                      f"（{len(self.history)} 条消息）")
             else:
-                history_store.new_session()
+                current = history_store.new_session()
+                print(f"[HistoryStore] 无历史会话，新建: {current.name}")
 
     def run(self, user_input: str) -> str:
         """单次交互：接收用户输入，返回响应"""
@@ -94,7 +97,9 @@ class Agent:
             if user_input.lower() == "reset":
                 self.history.clear()
                 if self.history_store:
-                    self.history_store.new_session()
+                    old_name = self.history_store._current.name if self.history_store._current else "?"
+                    new = self.history_store.new_session()
+                    print(f"[HistoryStore] 会话已重置: {old_name} → {new.name}")
                 print("对话已重置。")
                 continue
             if user_input.lower() == "help":

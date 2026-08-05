@@ -431,6 +431,112 @@ def test_agent_history_restore():
 
 
 # ═══════════════════════════════════════════
+# HistoryStore 边界测试
+# ═══════════════════════════════════════════
+
+def test_history_load_empty_file():
+    """加载空文件应返回空列表"""
+    _clean_conversations()
+    print("\n" + "=" * 50)
+    print("测试 12: HistoryStore 加载空文件")
+    store = HistoryStore(root=PROJECT_ROOT)
+    store.new_session()
+    # 空文件（new_session 创建的 touch 文件）
+
+    msgs = store.load(store._current)
+    assert msgs == []
+    print("  ✅ 通过：空文件返回 []，不崩溃")
+
+
+def test_history_load_corrupted_line():
+    """损坏的 JSON 行被跳过，正常行不受影响"""
+    _clean_conversations()
+    print("\n" + "=" * 50)
+    print("测试 13: HistoryStore 损坏行容错")
+    store = HistoryStore(root=PROJECT_ROOT)
+    store.new_session()
+
+    # 保存 1 条正常消息
+    store.save([Message(role="user", content="你好")])
+
+    # 手动追加 1 条损坏行 + 1 条正常行
+    with open(store._current, "a", encoding="utf-8") as f:
+        f.write("这不是合法的 JSON\n")
+        f.write('{"role": "assistant", "content": "你好！"}\n')
+
+    msgs = store.load(store._current)
+    assert len(msgs) == 2  # 1 条正常 + 1 条损坏(跳过) + 1 条正常
+    assert msgs[0].role == "user"
+    assert msgs[1].role == "assistant"
+    print("  ✅ 通过：损坏行被跳过，正常行保留")
+
+
+def test_history_latest_session_picks_newest():
+    """多次会话时 latest_session 返回最新的"""
+    _clean_conversations()
+    print("\n" + "=" * 50)
+    print("测试 14: HistoryStore 选最新会话")
+    import time as _time
+
+    store = HistoryStore(root=PROJECT_ROOT)
+
+    # 创建两个会话文件
+    s1 = store.new_session()
+    _time.sleep(0.1)
+    s2 = store.new_session()
+
+    latest = store.latest_session()
+    assert latest == s2, f"期望 {s2.name}，实际 {latest.name if latest else 'None'}"
+    print("  ✅ 通过：两个会话文件中正确选出最新的")
+
+
+def test_history_no_prior_session():
+    """无历史时 latest_session 返回 None"""
+    _clean_conversations()
+    print("\n" + "=" * 50)
+    print("测试 15: HistoryStore 无历史会话")
+    store = HistoryStore(root=PROJECT_ROOT)
+    # 不调用 new_session，直接查
+    latest = store.latest_session()
+    assert latest is None
+    print("  ✅ 通过：无会话文件时 latest_session 返回 None")
+
+
+def test_history_reset_creates_new_file():
+    """reset 后生成新会话文件，与旧文件不同"""
+    _clean_conversations()
+    print("\n" + "=" * 50)
+    print("测试 16: HistoryStore reset 新文件")
+    store = HistoryStore(root=PROJECT_ROOT)
+
+    brain = MockBrain([
+        Message(role="assistant", content="第一条回复"),
+    ])
+    tools = build_tools()
+    recorder = Recorder(root=PROJECT_ROOT)
+
+    agent = Agent(brain=brain, tools=tools, recorder=recorder, history_store=store)
+    old_session = store._current
+
+    # 模拟一次交互
+    agent.run("问题1")
+
+    # 模拟 reset（手动触发生成新会话文件）
+    agent.history.clear()
+    store.new_session()
+    new_session = store._current
+
+    assert old_session != new_session, "reset 后会话文件应不同"
+    # 旧文件内容应保留
+    old_msgs = store.load(old_session)
+    assert len(old_msgs) == 2  # user + assistant from run()
+    # 新文件应为空
+    new_msgs = store.load(new_session)
+    assert new_msgs == []
+    print("  ✅ 通过：reset 后生成新文件，旧文件内容保留")
+
+
+# ═══════════════════════════════════════════
 # 运行所有测试
 # ═══════════════════════════════════════════
 
@@ -452,6 +558,11 @@ if __name__ == "__main__":
         test_history_tool_calls_roundtrip,
         test_agent_with_history_store,
         test_agent_history_restore,
+        test_history_load_empty_file,
+        test_history_load_corrupted_line,
+        test_history_latest_session_picks_newest,
+        test_history_no_prior_session,
+        test_history_reset_creates_new_file,
     ]
 
     for test in tests:

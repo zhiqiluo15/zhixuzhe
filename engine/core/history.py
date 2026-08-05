@@ -43,7 +43,7 @@ class HistoryStore:
 
     def new_session(self) -> Path:
         """开新会话文件，返回文件路径"""
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         self._current = self.dir / f"{ts}.jsonl"
         # 创建空文件以在磁盘上声明此会话
         self._current.touch()
@@ -63,11 +63,15 @@ class HistoryStore:
                 f.write(json.dumps(_serialize(msg), ensure_ascii=False) + "\n")
 
     def load(self, filepath: Path) -> list[Message]:
-        """从 JSONL 文件加载消息列表"""
+        """从 JSONL 文件加载消息列表，跳过损坏行"""
         messages: list[Message] = []
         with open(filepath, "r", encoding="utf-8") as f:
-            for line in f:
+            for i, line in enumerate(f):
                 line = line.strip()
-                if line:
+                if not line:
+                    continue
+                try:
                     messages.append(_deserialize(json.loads(line)))
+                except (json.JSONDecodeError, KeyError) as e:
+                    print(f"[HistoryStore] 跳过损坏行 {filepath.name}:{i + 1} — {e}")
         return messages
