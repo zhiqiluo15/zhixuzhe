@@ -13,6 +13,7 @@ import re
 from engine.brain.base import Brain, Message
 from engine.tools.registry import ToolRegistry
 from engine.core.recorder import Recorder
+from engine.core.react import react_loop
 
 # 规划提示词
 PLAN_SYSTEM = """你是一个任务规划器。将用户目标分解为具体、可执行的步骤。
@@ -147,24 +148,7 @@ class TaskRunner:
             Message(role="user", content=f"请执行第 {step_idx + 1}/{len(plan)} 步"),
         ]
 
-        tool_specs = self.tools.to_openai_specs() or None
-        response = self.brain.think(messages, tool_specs)
-
-        # 工具调用循环
-        for _ in range(MAX_TOOL_ROUNDS):
-            if not response.tool_calls:
-                break
-            messages.append(response)
-            for tc in response.tool_calls:
-                name = tc["function"]["name"]
-                args = json.loads(tc["function"]["arguments"])
-                result = self.tools.execute(name, **args)
-                messages.append(Message(
-                    role="tool",
-                    content=result,
-                    tool_call_id=tc["id"],
-                ))
-            response = self.brain.think(messages, tool_specs)
+        response = react_loop(self.brain, messages, self.tools, MAX_TOOL_ROUNDS)
 
         return response.content
 

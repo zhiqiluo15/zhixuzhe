@@ -5,11 +5,10 @@
 - 任务模式: 用户给目标，智序者自主规划步骤、逐步执行、综合结论（task 命令触发）
 """
 
-import json
-
 from engine.brain.base import Brain, Message
 from engine.tools.registry import ToolRegistry
 from engine.core.recorder import Recorder
+from engine.core.react import react_loop
 from engine.core.task import TaskRunner
 
 SYSTEM_PROMPT = """你是智序者（zhixuzhe），一个以 DeepSeek 为基座的智能助手。
@@ -52,26 +51,7 @@ class Agent:
         user_msg = Message(role="user", content=user_input)
         messages = [self.system] + self.history + [user_msg]
 
-        tool_specs = self.tools.to_openai_specs() or None
-        response = self.brain.think(messages, tool_specs)
-
-        # 工具调用循环
-        for _ in range(MAX_TOOL_ROUNDS):
-            if not response.tool_calls:
-                break
-
-            messages.append(response)
-            for tc in response.tool_calls:
-                name = tc["function"]["name"]
-                args = json.loads(tc["function"]["arguments"])
-                result = self.tools.execute(name, **args)
-                messages.append(Message(
-                    role="tool",
-                    content=result,
-                    tool_call_id=tc["id"],
-                ))
-
-            response = self.brain.think(messages, tool_specs)
+        response = react_loop(self.brain, messages, self.tools, MAX_TOOL_ROUNDS)
 
         # 记录
         self.history.append(user_msg)
