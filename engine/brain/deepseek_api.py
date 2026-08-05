@@ -19,7 +19,7 @@ class DeepSeekAPIBrain(Brain):
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "deepseek-chat",
+        model: str = "deepseek-v4-pro",
         base_url: str = "https://api.deepseek.com/v1",
     ):
         root = Path(__file__).resolve().parent.parent.parent

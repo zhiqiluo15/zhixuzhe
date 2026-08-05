@@ -10,6 +10,7 @@ from engine.brain.base import Brain, Message
 from engine.tools.registry import ToolRegistry
 
 DEFAULT_MAX_ROUNDS = 5
+MAX_TOOL_OUTPUT_CHARS = 32000  # 单次工具输出最大字符数，防止撑爆上下文
 
 
 def react_loop(
@@ -35,6 +36,11 @@ def react_loop(
             name = tc["function"]["name"]
             args = json.loads(tc["function"]["arguments"])
             result = tools.execute(name, **args)
+            # 截断过长输出，防止撑爆上下文窗口
+            if len(result) > MAX_TOOL_OUTPUT_CHARS:
+                result = result[:MAX_TOOL_OUTPUT_CHARS] + (
+                    f"\n\n[已截断，原长度 {len(result)} 字符]"
+                )
             messages.append(Message(
                 role="tool",
                 content=result,
