@@ -32,6 +32,15 @@ class HistoryStore:
         self.dir.mkdir(parents=True, exist_ok=True)
         self._current: Path | None = None
 
+    @property
+    def current_session_name(self) -> str | None:
+        """当前会话文件名，未初始化时返回 None"""
+        return self._current.name if self._current else None
+
+    def set_current_session(self, path: Path) -> None:
+        """设置当前会话文件路径"""
+        self._current = path
+
     def new_session(self) -> Path:
         """开新会话文件，返回文件路径"""
         ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")

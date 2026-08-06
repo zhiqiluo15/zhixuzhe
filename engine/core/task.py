@@ -10,6 +10,8 @@
 import json
 import re
 
+from typing import Callable
+
 from engine.brain.base import Brain, Message
 from engine.tools.registry import ToolRegistry
 from engine.skills.registry import SkillRegistry
@@ -77,28 +79,34 @@ class TaskRunner:
         goal: str,
         verbose: bool = True,
         confirm_callback: ConfirmCallback | None = None,
+        verbose_callback: Callable[[str], None] | None = None,
     ) -> str:
         """执行一个目标，返回最终结论"""
+
+        def _vprint(msg: str) -> None:
+            if verbose:
+                if verbose_callback is not None:
+                    verbose_callback(msg)
+                else:
+                    print(msg)
+
         # 1. 规划（优先技能匹配 → 回退 LLM 即兴规划）
         plan_source = "llm"
         skill = self.router.route(goal) if self.router else None
 
         if skill:
             logger.info(f"匹配技能: {skill.name}")
-            if verbose:
-                print(f"🎯 匹配技能: {skill.name}（{skill.description}）")
+            _vprint(f"🎯 匹配技能: {skill.name}（{skill.description}）")
             plan = skill.plan(goal)
             plan_source = f"skill:{skill.name}"
         else:
             logger.info("LLM 即兴规划中...")
-            if verbose:
-                print("📋 规划中...", end=" ", flush=True)
+            _vprint("📋 规划中...")
             plan = self._plan(goal)
 
-        if verbose:
-            print(f"共 {len(plan)} 步")
-            for i, s in enumerate(plan):
-                print(f"  [{i + 1}] {s}")
+        _vprint(f"共 {len(plan)} 步")
+        for i, s in enumerate(plan):
+            _vprint(f"  [{i + 1}] {s}")
 
         # 2. 逐步执行
         # 注入记忆上下文到第一步
@@ -108,29 +116,24 @@ class TaskRunner:
 
         step_results: list[str] = []
         for i, step in enumerate(plan):
-            if verbose:
-                print(f"\n⏳ [{i + 1}/{len(plan)}] {step[:50]}...", end=" ", flush=True)
+            _vprint(f"\n⏳ [{i + 1}/{len(plan)}] {step[:50]}...")
             try:
                 result = self._execute_step(
                     goal, step, i, plan, step_results[:i],
                     confirm_callback, memory_context,
                 )
                 step_results.append(result)
-                if verbose:
-                    print("✅")
+                _vprint("✅")
             except Exception as e:
                 logger.error(f"步骤 {i + 1} 执行失败: {e}")
                 step_results.append(f"执行失败: {e}")
-                if verbose:
-                    print(f"❌ {e}")
+                _vprint(f"❌ {e}")
 
         # 3. 综合
         logger.info("综合分析中...")
-        if verbose:
-            print("\n📝 综合分析中...", end=" ", flush=True)
+        _vprint("\n📝 综合分析中...")
         final = self._synthesize(goal, plan, step_results)
-        if verbose:
-            print("完成")
+        _vprint("完成")
 
         # 4. 记录
         self.recorder.record_task(goal, plan, step_results, final, plan_source)
@@ -141,7 +144,7 @@ class TaskRunner:
 
     def _plan(self, goal: str) -> list[str]:
         """用大脑分解目标为步骤列表"""
-        tool_names = ", ".join(self.tools._tools.keys()) if self.tools._tools else "无"
+        tool_names = ", ".join(self.tools.names()) if self.tools else "无"
         system = PLAN_SYSTEM.format(tools=tool_names)
 
         messages = [

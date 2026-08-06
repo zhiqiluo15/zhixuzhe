@@ -59,8 +59,29 @@ class Recorder:
         self._write_experience(entry)
 
     def _write_experience(self, entry: str) -> None:
-        """写经验到当日经验文件"""
+        """写经验到当日经验文件，自动去重。
+
+        去重策略：提取 entry 中的「场景」和「教训」行，
+        与当日已有经验逐条对比，完全相同则跳过写入。
+        """
         filepath = self.experience_dir / f"{datetime.now().strftime('%Y%m%d')}.md"
+
+        # 提取本次的场景和教训用于去重比较
+        scene_line = ""
+        lesson_line = ""
+        for line in entry.splitlines():
+            if line.startswith("**场景**"):
+                scene_line = line.strip()
+            elif line.startswith("**教训**"):
+                lesson_line = line.strip()
+
+        # 检查当日文件中是否已有相同条目
+        if filepath.exists() and scene_line and lesson_line:
+            existing = filepath.read_text(encoding="utf-8")
+            if scene_line in existing and lesson_line in existing:
+                logger.debug(f"经验已存在，跳过写入: {scene_line[:50]}...")
+                return
+
         if not filepath.exists():
             date_str = datetime.now().strftime("%Y-%m-%d")
             entry = f"# 智序者经验 - {date_str}\n\n" + entry

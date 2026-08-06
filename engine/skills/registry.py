@@ -56,3 +56,10 @@ class SkillRegistry:
 
     def __contains__(self, name: str) -> bool:
         return name in self._skills
+
+    def names(self) -> list[str]:
+        return list(self._skills.keys())
+
+    def list_all(self) -> list:
+        """返回所有已注册的 Skill 对象列表"""
+        return list(self._skills.values())

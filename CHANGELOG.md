@@ -346,3 +346,79 @@
   - 任务模式（TaskRunner）：**不走流式**，保持 verbose 步骤输出，因为分步执行比逐 token 更有意义。
 - **向后兼容**：所有测试 SpyBrain/MockBrain 走基类 `think_stream()` → `think()` 回退，语义不变。`stream_callback=None` 时 react_loop 行为与 v1.0 完全一致。
 - **测试**：20/20 全绿
+
+---
+
+### Web Server 模块（2026-08-06）
+
+- **动机**：提供浏览器端交互界面，让智序者可通过 Web UI 使用，无需 CLI。
+- **文件**：
+  - `engine/web_server.py` —— 零依赖 HTTP 后端（基于 `http.server`），提供 REST API + SSE 流式推送
+  - `engine/web/index.html` —— 单页前端（星空背景、流式打字效果、Markdown 渲染、API Key 设置引导）
+  - `run_web.bat` / `run.ps1` / `run.bat` —— 启动脚本
+- **架构**：
+  - 懒初始化 Agent（首次请求时组装，`/setup` 设置 API Key 后重新初始化）
+  - 线程安全（`threading.Lock` 保护 Agent 单例）
+  - SSE 流式输出（`/chat` 逐 token 推送，`/task` 步骤级推送）
+  - CORS 开放（`*`），仅监听 `127.0.0.1`（仅本机访问）
+- **API 端点**：`GET /`（前端 UI）、`GET /status`、`POST /setup`、`GET /skills`、`POST /chat`（SSE）、`POST /task`（SSE）、`POST /reset`
+- **已知局限**：Agent 组装逻辑与 CLI 入口重复（已在 v1.1 通过 factory.py 解决）；TaskRunner 输出通过 stdout 劫持捕获（已在 v1.1 通过 verbose_callback 解决）
+
+---
+
+### v1.1 修复：11 项问题修复（2026-08-06）
+
+以下修复基于 2026-08-06 全面体检报告，按优先级排序。
+
+#### P0-1: Web 端 HITL 安全修复（安全漏洞）
+- **问题**：`Agent.run()` 在 web 模式下（有 `stream_callback`）将 `confirm_callback` 设为 None，导致 `run_shell` 等需确认的工具绕过 HITL。Web 端 CORS=`*` + `127.0.0.1` 监听 → CSRF 可触发 RCE。
+- **修复**：
+  - `Agent.run()` 新增 `confirm_callback` 参数，优先级：显式传入 > CLI 默认 `_hitl_confirm` > None
+  - `web_server.py` 新增 `_make_web_confirm_callback(sse_write)`：通过 SSE `confirm_request` 事件 + `threading.Event` 等待前端 60 秒内响应
+  - 新增 `/confirm` POST 端点接收前端确认结果
+  - `HTTPServer` → `ThreadingHTTPServer`（支持 SSE 流期间并发处理 `/confirm`）
+  - 前端新增确认覆盖层（CSS + HTML + JS）：工具名、参数展示、拒绝/允许按钮
+- **影响**：Web 端安全三角闭合，chat 和 task 模式均受 HITL 保护
+
+#### P0-2: write_file append 模式修复
+- **问题**：`file_io.py` 中 `mode = "a" if append else "w"` 计算了但未使用，`path.write_text()` 永远覆盖
+- **修复**：改用 `path.open(mode, encoding="utf-8")` + `f.write(content)`
+- **影响**：`append=True` 时正确追加而非覆盖
+
+#### P1-3: think() 4xx 不重试修复
+- **问题**：`resp.raise_for_status()` 抛出的 `HTTPError` 被外部 `except RequestException` 捕获，导致 4xx（如 401 认证失败）也重试 3 次
+- **修复**：4xx 非 429 直接 `return Message(...)` 而非抛异常
+- **影响**：401/400 等不可重试错误立即返回，不浪费 API 调用
+
+#### P1-4: CHANGELOG 补记
+- 本次变更（Web Server 模块 + v1.1 修复）的全部记录（即本条目）
+
+#### P2-6: Agent 组装工厂抽取
+- **问题**：`__main__.py` 和 `web_server.py` 各有一份 ~90 行的 Agent 组装代码，完全重复
+- **修复**：新建 `engine/factory.py`，`create_agent(project_root)` 统一组装；两个入口改为一行调用
+- **影响**：后续新增工具/技能只需改一处，消除不一致风险
+
+#### P2-7: stdout 劫持 hack 修复
+- **问题**：`web_server.py` 通过 `_StepCapture` 类劫持 `sys.stdout` 捕获 TaskRunner 输出，与 CHANGELOG 记录的 v1.0 "stdout 捕获 hack 重构" 背道而驰
+- **修复**：`TaskRunner.run()` 新增 `verbose_callback: Callable[[str], None]` 参数；Web 端传入 SSE 回调直接捕获步骤输出；删除 `_StepCapture` 类
+- **影响**：消除 stdout 劫持，TaskRunner 原生支持回调输出
+
+#### P3-8: 经验写入去重
+- **问题**：`record_experience()` 不检查重复，同一条经验被连续写入多次
+- **修复**：`_write_experience()` 写入前检查当日文件中是否已存在相同场景+教训组合
+- **影响**：经验文件不再膨胀，每条经验只记录一次
+
+#### P3-9: think_stream 重试
+- **问题**：`think_stream()` 无重试逻辑，与 `think()` 的 3 次重试不一致
+- **修复**：请求阶段包裹在 `for attempt in range(config.model.max_retries)` 循环中，429/5xx/网络错误退避重试，4xx 非 429 立即返回
+- **影响**：流式路径容错能力与非流式一致
+
+#### P3-10: 测试 assert 修复
+- **问题**：`test_memory.py` 4 个测试函数末尾 `return True` 触发 `PytestReturnNotNoneWarning`
+- **修复**：删除 `return True` 语句
+- **影响**：消除 pytest warning，无功能变化
+
+#### P3-11: 私有属性访问替换
+- **问题**：多处直接访问 `_tools`、`_skills`、`_current` 等下划线私有属性
+- **修复**：`ToolRegistry` 新增 `__len__`/`names()`/`__contains__`/`__iter__`；`SkillRegistry` 新增 `names()`/`list_all()`；`HistoryStore` 新增 `current_session_name` 属性 + `set_current_session()`；`Agent` 新增 `tool_count`/`skill_count` 属性；所有调用方替换为公共 API
+- **影响**：封装性提升，外部代码不再依赖内部实现细节

@@ -83,7 +83,8 @@ def write_file(filepath: str, content: str, append: bool = False) -> str:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         mode = "a" if append else "w"
-        path.write_text(content, encoding="utf-8")
+        with path.open(mode, encoding="utf-8") as f:
+            f.write(content)
     except Exception as e:
         return f"写入文件失败: {e}"
 

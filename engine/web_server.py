@@ -9,6 +9,7 @@ API:
   GET  /skills     → 技能列表 JSON
   POST /chat       → SSE 流式聊天
   POST /task       → SSE 流式任务
+  POST /confirm     → HITL 确认响应
   POST /reset      → 重置对话
 """
 
@@ -16,7 +17,8 @@ import json
 import os
 import sys
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import uuid
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 # 项目根
@@ -28,6 +30,9 @@ WEB_DIR = Path(__file__).resolve().parent / "web"
 _agent = None
 _agent_error: str | None = None  # 初始化失败时的错误信息
 _agent_lock = threading.Lock()
+
+# ── HITL 确认状态 ──
+_pending_confirms: dict[str, dict] = {}  # confirm_id → {"event": threading.Event, "result": bool}
 
 
 def _try_init_agent():
@@ -47,79 +52,14 @@ def _try_init_agent():
         backup_count=config.logging.file_backup_count,
     )
 
-    from engine.brain.deepseek_api import DeepSeekAPIBrain
-    from engine.tools.registry import ToolRegistry, Tool
-    from engine.tools.detect_host import detect_host
-    from engine.tools.verify_gpu import verify_gpu
-    from engine.tools.shell import run_shell
-    from engine.tools.file_io import read_file, write_file
-    from engine.tools.web_fetch import web_fetch
-    from engine.skills.registry import SkillRegistry
-    from engine.skills.hardware_check.skill import HardwareCheckSkill
-    from engine.core.loop import Agent
-    from engine.core.recorder import Recorder
-    from engine.core.history import HistoryStore
-    from engine.core.memory_reader import MemoryReader
-    from engine.core.memory_manager import MemoryManager
+    from engine.factory import create_agent
 
     try:
-        brain = DeepSeekAPIBrain(
-            model=config.model.model,
-            base_url=config.model.base_url,
-        )
+        _agent = create_agent(ROOT)
     except ValueError as e:
         _agent_error = str(e)
         return None
 
-    tools = ToolRegistry()
-    tools.register(Tool(name="detect_host", description="检测宿主机信息", func=detect_host))
-    tools.register(Tool(name="verify_gpu", description="验证 GPU 算力", func=verify_gpu))
-    tools.register(Tool(
-        name="run_shell", description="执行 PowerShell 命令",
-        func=run_shell,
-        parameters={
-            "type": "object",
-            "properties": {
-                "command": {"type": "string", "description": "PowerShell 命令"},
-                "timeout": {"type": "integer", "description": "超时秒数"},
-            },
-            "required": ["command"],
-        },
-        max_retries=config.tools.shell.max_retries,
-    ))
-    tools.register(Tool(
-        name="read_file", description="读取项目内文件",
-        func=read_file,
-        parameters={"type": "object", "properties": {"filepath": {"type": "string"}}, "required": ["filepath"]},
-    ))
-    tools.register(Tool(
-        name="write_file", description="写入项目内文件",
-        func=write_file,
-        parameters={"type": "object", "properties": {"filepath": {"type": "string"}, "content": {"type": "string"}}, "required": ["filepath", "content"]},
-    ))
-    tools.register(Tool(
-        name="web_fetch", description="获取网页内容",
-        func=web_fetch,
-        parameters={"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
-    ))
-
-    skills = SkillRegistry()
-    skills.register(HardwareCheckSkill())
-
-    recorder = Recorder(root=ROOT)
-    history_store = HistoryStore(root=ROOT)
-    memory_reader = MemoryReader(root=ROOT)
-    memory_manager = MemoryManager(memory_reader)
-
-    confirm_tools = set(config.agent.confirm_tools)
-
-    _agent = Agent(
-        brain=brain, tools=tools,
-        recorder=recorder, history_store=history_store,
-        skill_registry=skills,
-        memory_manager=memory_manager,
-        confirm_tools=confirm_tools,
-    )
     _agent_error = None
     return _agent
 
@@ -153,6 +93,31 @@ def get_agent_status() -> dict:
     if agent is not None:
         return {"ready": True}
     return {"ready": False, "error": _agent_error or "未初始化"}
+
+
+def _make_web_confirm_callback(sse_write):
+    """创建 Web 端 HITL 确认回调。
+
+    通过 SSE 发送 confirm_request 事件给前端，用 threading.Event 等待用户响应。
+    60 秒超时未响应则自动拒绝。
+    """
+    def confirm_callback(tool_name: str, args: dict) -> bool:
+        confirm_id = str(uuid.uuid4())
+        event = threading.Event()
+        _pending_confirms[confirm_id] = {"event": event, "result": False}
+        sse_write("confirm_request", {
+            "id": confirm_id,
+            "tool_name": tool_name,
+            "args": args,
+        })
+        if event.wait(timeout=60):
+            result = _pending_confirms.pop(confirm_id, {}).get("result", False)
+            return result
+        else:
+            _pending_confirms.pop(confirm_id, None)
+            return False
+
+    return confirm_callback
 
 
 # ── 读取前端 HTML ──
@@ -234,6 +199,8 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
         elif self.path == "/task":
             if self._check_agent():
                 self._handle_task()
+        elif self.path == "/confirm":
+            self._handle_confirm()
         elif self.path == "/reset":
             if self._check_agent():
                 self._handle_reset()
@@ -286,11 +253,35 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             self._ok()
             self.wfile.write(json.dumps({
                 "status": "ok",
-                "tools": len(agent.tools._tools),
-                "skills": len(agent.skill_registry),
+                "tools": agent.tool_count,
+                "skills": agent.skill_count,
             }, ensure_ascii=False).encode())
         else:
             self._error(500, _agent_error or "初始化失败")
+
+    # ── HITL 确认 ──
+
+    def _handle_confirm(self):
+        """处理前端 HITL 确认响应"""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+            confirm_id = body.get("id", "")
+            approved = body.get("approved", False)
+        except (ValueError, json.JSONDecodeError):
+            self._error(400, "无效请求体")
+            return
+
+        pending = _pending_confirms.get(confirm_id)
+        if pending is None:
+            self._error(404, "确认请求已过期或不存在")
+            return
+
+        pending["result"] = approved
+        pending["event"].set()
+
+        self._ok()
+        self.wfile.write(json.dumps({"status": "ok"}).encode())
 
     # ── 页面 ──
 
@@ -305,7 +296,7 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
         if agent.skill_registry:
             skills = [
                 {"name": s.name, "description": s.description, "triggers": s.triggers}
-                for s in agent.skill_registry._skills.values()
+                for s in agent.skill_registry.list_all()
             ]
         else:
             skills = []
@@ -347,8 +338,14 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
         def stream_callback(chunk: str) -> None:
             sse_write("text", {"content": chunk})
 
+        confirm_callback = _make_web_confirm_callback(sse_write)
+
         try:
-            response = agent.run(message, stream_callback=stream_callback)
+            response = agent.run(
+                message,
+                stream_callback=stream_callback,
+                confirm_callback=confirm_callback,
+            )
             sse_write("done", {"content": response})
         except Exception as e:
             sse_write("error", {"content": str(e)})
@@ -387,38 +384,16 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
         try:
             sse_write("task_start", {"goal": goal})
 
-            import io
-            old_stdout = sys.stdout
+            def verbose_callback(msg: str) -> None:
+                sse_write("task_step", {"content": msg})
 
-            class _StepCapture:
-                def __init__(self, sse_fn):
-                    self.sse_fn = sse_fn
-                    self.current_step = ""
+            confirm_callback = _make_web_confirm_callback(sse_write)
 
-                def write(self, s):
-                    self.current_step += s
-                    if "\n" in self.current_step:
-                        lines = self.current_step.split("\n")
-                        for line in lines[:-1]:
-                            stripped = line.strip()
-                            if stripped:
-                                self.sse_fn("task_step", {"content": stripped})
-                        self.current_step = lines[-1]
-
-                def flush(self):
-                    if self.current_step.strip():
-                        self.sse_fn("task_step", {"content": self.current_step.strip()})
-                        self.current_step = ""
-
-            capture = _StepCapture(sse_write)
-            sys.stdout = capture
-
-            try:
-                response = agent.task_runner.run(
-                    goal, verbose=True, confirm_callback=None,
-                )
-            finally:
-                sys.stdout = old_stdout
+            response = agent.task_runner.run(
+                goal, verbose=True,
+                verbose_callback=verbose_callback,
+                confirm_callback=confirm_callback,
+            )
 
             sse_write("task_done", {"content": response})
         except Exception as e:
@@ -443,14 +418,14 @@ def main(port: int = 8080):
     # 尝试预初始化
     agent = get_agent()
     if agent is not None:
-        print(f"  Agent 就绪（{len(agent.tools._tools)} 个工具，{len(agent.skill_registry)} 个技能）")
+        print(f"  Agent 就绪（{agent.tool_count} 个工具，{agent.skill_count} 个技能）")
     else:
         print(f"  ⚠️  Agent 未就绪: {_agent_error}")
         print(f"  打开浏览器后将引导设置 API Key")
 
     print(f"\n  打开浏览器访问: http://localhost:{port}\n")
 
-    server = HTTPServer(("127.0.0.1", port), ZhixuzheHandler)
+    server = ThreadingHTTPServer(("127.0.0.1", port), ZhixuzheHandler)
     print(f"  服务运行在 http://localhost:{port}（仅本机访问）")
     print(f"  按 Ctrl+C 停止\n")
     try:

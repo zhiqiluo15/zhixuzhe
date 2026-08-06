@@ -234,6 +234,54 @@ footer .hint {
 #setup-overlay .setup-status {
   font-size: 12px; color: #555; min-height: 18px;
 }
+/* ── HITL 确认覆盖层 ── */
+#confirm-overlay {
+  position: fixed; top:0; left:0; width:100%; height:100%;
+  z-index: 90;
+  background: rgba(2,2,10,0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: none; align-items: center; justify-content: center;
+  flex-direction: column; gap: 16px;
+}
+#confirm-overlay.visible { display: flex; }
+#confirm-overlay .confirm-card {
+  background: rgba(22,22,38,0.98);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 14px; padding: 24px 28px;
+  max-width: 420px; width: 90%;
+  text-align: center;
+}
+#confirm-overlay .confirm-title {
+  font-size: 16px; color: #f87171; font-weight: 600; margin-bottom: 10px;
+}
+#confirm-overlay .confirm-tool {
+  font-size: 13px; color: #a78bfa; font-family: "Consolas", monospace;
+  word-break: break-all; margin-bottom: 6px;
+  background: rgba(167,139,250,0.06); padding: 8px 12px; border-radius: 8px;
+}
+#confirm-overlay .confirm-args {
+  font-size: 11px; color: #777; word-break: break-all;
+  margin-bottom: 18px;
+}
+#confirm-overlay .confirm-buttons {
+  display: flex; gap: 12px; justify-content: center;
+}
+#confirm-overlay .confirm-buttons button {
+  padding: 10px 28px; border-radius: 10px; cursor: pointer;
+  font-size: 14px; font-weight: 500; transition: all 0.2s;
+  border: none;
+}
+#confirm-overlay .btn-deny {
+  background: rgba(255,255,255,0.06); color: #999;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+#confirm-overlay .btn-deny:hover { background: rgba(255,255,255,0.12); color: #ccc; }
+#confirm-overlay .btn-approve {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  color: #fff; box-shadow: 0 2px 10px rgba(239,68,68,0.3);
+}
+#confirm-overlay .btn-approve:hover { opacity: 0.92; transform: scale(1.03); }
 </style>
 </head>
 <body>
@@ -258,6 +306,19 @@ footer .hint {
   </div>
   <div class="setup-error" id="setup-error"></div>
   <div class="setup-status" id="setup-status"></div>
+</div>
+
+<!-- HITL 确认覆盖层 -->
+<div id="confirm-overlay">
+  <div class="confirm-card">
+    <div class="confirm-title">⚠️ 工具调用确认</div>
+    <div class="confirm-tool" id="confirm-tool-name"></div>
+    <div class="confirm-args" id="confirm-tool-args"></div>
+    <div class="confirm-buttons">
+      <button class="btn-deny" onclick="respondConfirm(false)">拒绝</button>
+      <button class="btn-approve" onclick="respondConfirm(true)">允许执行</button>
+    </div>
+  </div>
 </div>
 
 <header>
@@ -363,6 +424,28 @@ async function submitSetup() {
 
 // 页面加载时检查状态
 checkStatus();
+
+// ── HITL 确认 ──
+let currentConfirmId = null;
+
+function showConfirmDialog(id, toolName, args) {
+  currentConfirmId = id;
+  document.getElementById('confirm-tool-name').textContent = toolName;
+  document.getElementById('confirm-tool-args').textContent = JSON.stringify(args, null, 2);
+  document.getElementById('confirm-overlay').classList.add('visible');
+}
+
+function respondConfirm(approved) {
+  document.getElementById('confirm-overlay').classList.remove('visible');
+  if (currentConfirmId) {
+    fetch('/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: currentConfirmId, approved: approved }),
+    }).catch(() => {});
+    currentConfirmId = null;
+  }
+}
 
 // 渲染初始问候语
 (function initGreeting() {
@@ -589,6 +672,9 @@ async function send() {
           } else if (data.type === 'error') {
             addMessage('system', `错误: ${data.content}`);
             setHint('');
+
+          } else if (data.type === 'confirm_request') {
+            showConfirmDialog(data.id, data.tool_name, data.args);
           }
         } catch (e) {}
       }

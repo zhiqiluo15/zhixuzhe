@@ -68,11 +68,21 @@ class Agent:
             latest = history_store.latest_session()
             if latest:
                 self.history = history_store.load(latest)
-                history_store._current = latest
+                history_store.set_current_session(latest)
                 logger.info(f"已恢复会话: {latest.name}（{len(self.history)} 条消息）")
             else:
                 current = history_store.new_session()
                 logger.info(f"无历史会话，新建: {current.name}")
+
+    # ── 公共属性 ──
+
+    @property
+    def tool_count(self) -> int:
+        return len(self.tools)
+
+    @property
+    def skill_count(self) -> int:
+        return len(self.skill_registry) if self.skill_registry else 0
 
     # ── HITL 确认回调 ──
 
@@ -90,12 +100,18 @@ class Agent:
 
     # ── 核心循环 ──
 
-    def run(self, user_input: str, stream_callback: StreamCallback | None = None) -> str:
+    def run(
+        self,
+        user_input: str,
+        stream_callback: StreamCallback | None = None,
+        confirm_callback: ConfirmCallback | None = None,
+    ) -> str:
         """单次交互：接收用户输入，返回响应。
 
         Args:
             user_input: 用户消息
             stream_callback: 可选流式回调。None 时默认 terminal 打印。
+            confirm_callback: 可选 HITL 确认回调。显式传入 > CLI 默认 > None。
         """
         user_msg = Message(role="user", content=user_input)
 
@@ -122,19 +138,27 @@ class Agent:
                 print(chunk, end="", flush=True)
 
             cb = stream_print
-            cli = True
+            is_cli = True
         else:
             cb = stream_callback
-            cli = False
+            is_cli = False
+
+        # 确定 HITL 确认回调：显式传入 > CLI 默认 > None
+        if confirm_callback is not None:
+            hitl_cb = confirm_callback
+        elif is_cli:
+            hitl_cb = self._hitl_confirm
+        else:
+            hitl_cb = None
 
         response = react_loop(
             self.brain, messages, self.tools,
-            confirm_callback=self._hitl_confirm if cli else None,
+            confirm_callback=hitl_cb,
             stream_callback=cb,
         )
 
         # CLI 模式换行
-        if cli and not first[0]:
+        if is_cli and not first[0]:
             print()
 
         # 记录
@@ -168,7 +192,7 @@ class Agent:
             if user_input.lower() == "reset":
                 self.history.clear()
                 if self.history_store:
-                    old_name = self.history_store._current.name if self.history_store._current else "?"
+                    old_name = self.history_store.current_session_name or "?"
                     new = self.history_store.new_session()
                     logger.info(f"会话已重置: {old_name} → {new.name}")
                 print("对话已重置。")

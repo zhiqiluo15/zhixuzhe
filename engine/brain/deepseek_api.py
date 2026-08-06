@@ -92,8 +92,12 @@ class DeepSeekAPIBrain(Brain):
                 if resp.status_code == 429 or resp.status_code >= 500:
                     last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
                 else:
-                    # 4xx 非 429（401/400 等）→ 不重试，直接抛
-                    resp.raise_for_status()
+                    # 4xx 非 429（401/400 等）→ 不重试，直接返回错误
+                    logger.error(f"API 不可重试错误 HTTP {resp.status_code}: {resp.text[:200]}")
+                    return Message(
+                        role="assistant",
+                        content=f"[API 错误 HTTP {resp.status_code}] {resp.text[:200]}",
+                    )
 
             except requests.RequestException as e:
                 last_error = str(e)[:200]
@@ -123,6 +127,7 @@ class DeepSeekAPIBrain(Brain):
 
         - tool_calls 的 delta 跨多个 chunk 累积（id/name 在首个，arguments 后续追加）
         - 我们产出 ("text", str) 给 UI 实时显示，"done" 时产出完整 Message
+        - 请求阶段支持自动重试（与 think() 一致）
         """
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -137,19 +142,40 @@ class DeepSeekAPIBrain(Brain):
         if tools:
             payload["tools"] = tools
 
-        try:
-            resp = requests.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=config.model.request_timeout,
-                stream=True,
-            )
-            resp.raise_for_status()
-        except requests.RequestException as e:
-            logger.error(f"SSE 请求失败: {e}")
-            yield ("text", f"[流式请求失败] {e}")
-            yield ("done", Message(role="assistant", content=f"[流式请求失败] {e}"))
+        last_error = ""
+        resp = None
+        for attempt in range(config.model.max_retries):
+            try:
+                resp = requests.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=config.model.request_timeout,
+                    stream=True,
+                )
+
+                if resp.ok:
+                    break  # 成功，进入流式迭代
+
+                if resp.status_code == 429 or resp.status_code >= 500:
+                    last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                else:
+                    # 4xx 非 429 → 不可重试，直接返回
+                    logger.error(f"SSE 不可重试错误 HTTP {resp.status_code}: {resp.text[:200]}")
+                    yield ("text", f"[流式请求失败 HTTP {resp.status_code}] {resp.text[:200]}")
+                    yield ("done", Message(role="assistant", content=f"[流式请求失败 HTTP {resp.status_code}] {resp.text[:200]}"))
+                    return
+
+            except requests.RequestException as e:
+                last_error = str(e)[:200]
+
+            if attempt < config.model.max_retries - 1:
+                time.sleep(2 ** attempt)
+
+        if resp is None or not resp.ok:
+            logger.error(f"SSE 请求失败（重试 {config.model.max_retries} 次后）: {last_error}")
+            yield ("text", f"[流式请求失败（重试 {config.model.max_retries} 次后）] {last_error}")
+            yield ("done", Message(role="assistant", content=f"[流式请求失败] {last_error}"))
             return
 
         accumulated: dict[int, dict] = {}  # index → {"id", "function": {"name", "arguments"}}

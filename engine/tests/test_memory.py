@@ -123,7 +123,6 @@ def test_memory_injection_for_relevant_query(root: Path):
     assert has_memory_block, "相关查询应触发记忆检索并注入 system prompt"
     assert has_qlora, "检索到的记忆中应包含 QLoRA 相关信息"
     print("\n  ✅ 测试 A 通过：相关查询正确注入了历史记忆\n")
-    return True
 
 
 # ── 测试 2：无关查询 → 不应注入记忆 ──
@@ -160,7 +159,6 @@ def test_no_memory_for_irrelevant_query(root: Path):
 
     assert not has_memory_block, f"无关查询不应触发记忆注入，但检索到了 {len(raw)} 条"
     print("\n  ✅ 测试 B 通过：无关查询未注入记忆\n")
-    return True
 
 
 # ── 测试 3：无 MemoryManager → 不注入（向后兼容） ──
@@ -190,7 +188,6 @@ def test_no_memory_manager(root: Path):
 
     assert not has_memory_block, "无 MemoryManager 时不应注入"
     print("\n  ✅ 测试 C 通过：不传 memory_manager 时向后兼容\n")
-    return True
 
 
 # ── 测试 4：经验检索 ──
@@ -214,7 +211,6 @@ def test_experience_retrieval(root: Path):
         "经验内容应包含 OOM 或 batch size 相关信息"
 
     print("\n  ✅ 测试 D 通过：经验检索正常\n")
-    return True
 
 
 # ── 运行 ──

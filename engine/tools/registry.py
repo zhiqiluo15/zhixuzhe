@@ -68,3 +68,15 @@ class ToolRegistry:
         if tool is None:
             return f"未知工具: {name}（可用工具: {', '.join(self._tools)})"
         return tool.execute(**kwargs)
+
+    def __len__(self) -> int:
+        return len(self._tools)
+
+    def names(self) -> list[str]:
+        return list(self._tools.keys())
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._tools
+
+    def __iter__(self):
+        return iter(self._tools)
