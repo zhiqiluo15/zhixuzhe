@@ -450,8 +450,8 @@ def main(port: int = 8080):
 
     print(f"\n  打开浏览器访问: http://localhost:{port}\n")
 
-    server = HTTPServer(("0.0.0.0", port), ZhixuzheHandler)
-    print(f"  服务运行在 http://localhost:{port}")
+    server = HTTPServer(("127.0.0.1", port), ZhixuzheHandler)
+    print(f"  服务运行在 http://localhost:{port}（仅本机访问）")
     print(f"  按 Ctrl+C 停止\n")
     try:
         server.serve_forever()
