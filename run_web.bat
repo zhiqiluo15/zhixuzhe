@@ -31,9 +31,19 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr :8080 ^| findstr LISTENING') 
     taskkill /f /pid %%a > nul 2>&1
 )
 
-REM Start web server (background, hidden window)
+REM Verify Python
+echo   Checking Python...
+python --version > "%TEMP%\zhixu_server.log" 2>&1
+if %errorlevel% neq 0 (
+    echo   ERROR: python not found in PATH
+    type "%TEMP%\zhixu_server.log"
+    pause
+    exit /b 1
+)
+
+REM Start web server with error logging (redirect must be INSIDE cmd /c)
 echo   Starting server...
-start "" /min python engine\web_server.py 8080
+start "" /min cmd /c "python -u engine\web_server.py 8080 > %TEMP%\zhixu_server.log 2>&1"
 
 REM Wait and verify
 echo   Waiting for server...
@@ -45,8 +55,12 @@ netstat -ano | findstr ":8080" | findstr "LISTENING" > nul
 if %errorlevel%==0 goto :server_ok
 if %count% lss 10 goto :wait_loop
 
-echo   ERROR: server failed to start
-echo   Check that Python is installed and dependencies are met
+echo.
+echo   === ERROR: server failed to start ===
+echo   === Server log ===
+type "%TEMP%\zhixu_server.log"
+echo   === End of log ===
+echo.
 pause
 exit /b 1
 
