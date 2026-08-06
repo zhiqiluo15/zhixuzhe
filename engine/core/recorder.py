@@ -85,8 +85,22 @@ class Recorder:
         if not filepath.exists():
             date_str = datetime.now().strftime("%Y-%m-%d")
             entry = f"# 智序者经验 - {date_str}\n\n" + entry
-        with open(filepath, "a", encoding="utf-8") as f:
-            f.write(entry)
+        self._write_atomic(filepath, entry)
+
+    @staticmethod
+    def _write_atomic(filepath: Path, content: str) -> None:
+        """带重试的追加写入，处理 Windows 下进程间文件锁竞争。"""
+        import time
+        for attempt in range(3):
+            try:
+                with open(filepath, "a", encoding="utf-8") as f:
+                    f.write(content)
+                return
+            except PermissionError:
+                if attempt < 2:
+                    time.sleep(0.2 * (attempt + 1))  # 0.2s → 0.4s
+        logger.error(f"写入失败（3 次重试均 PermissionError）: {filepath}")
+        # 吞掉异常，不阻断主流程
 
     def _write(self, entry: str) -> None:
         """写条目到当日日记文件，首次写入时自动加 header"""
@@ -94,8 +108,7 @@ class Recorder:
         if not filepath.exists():
             date_str = datetime.now().strftime("%Y-%m-%d")
             entry = f"# 智序者日记 - {date_str}\n\n" + entry
-        with open(filepath, "a", encoding="utf-8") as f:
-            f.write(entry)
+        self._write_atomic(filepath, entry)
 
     def _today_file(self) -> Path:
         return self.diary_dir / f"{datetime.now().strftime('%Y%m%d')}.md"

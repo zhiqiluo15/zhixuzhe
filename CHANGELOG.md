@@ -442,6 +442,15 @@
 - **修复**：[engine/log.py](file:///t:/zhixuzhe/engine/log.py#L61) 中 `RotatingFileHandler` 添加 `delay=True`——延迟文件打开到第一次 `emit()`（写日志），此时旧进程的句柄已释放。这是 Python logging 处理此场景的标准做法。
 - **验证**：cmd 936 模拟双击 → 8080 监听（PID 22008），`/status` → 200，`agent.log` 正常创建（116 bytes）。
 
+### 记忆写入保护：Recorder 文件锁重试（2026-08-07）
+
+- **问题**：Web 端聊天时报 `PermissionError: memory/diary/20260807.md`，记忆记录失败。
+- **根因**：与 `agent.log` 同类问题——`Recorder._write()` 直接 `open(file, "a")`，遇文件锁立即抛异常。本次触发场景是跨天文件首次创建时旧进程尚未释放句柄。
+- **修复**：[engine/core/recorder.py](file:///t:/zhixuzhe/engine/core/recorder.py#L90-L103) 新增 `_write_atomic()` 静态方法，3 次重试（0.2s → 0.4s 退避），`PermissionError` 全吞不阻断主流程。`_write()` 和 `_write_experience()` 统一走该方法。
+- **测试**：20/20 全绿。
+
+---
+
 ### 启动脚本闪退修复：LF 换行 → CRLF + GBK 编码（2026-08-06，三轮修正，已被上述终版取代）
 
 - **问题（第一轮）**：双击 `run_web.bat` / `run.bat` 窗口一闪而过；终端直跑 `python engine\web_server.py 8080` 却一切正常。
