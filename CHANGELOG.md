@@ -260,3 +260,74 @@
     → 失败? → 自动重试（1s 后）→ 失败? → 自动重试（2s 后）
     → 仍失败 → 返回错误信息给 Brain
   ```
+
+---
+
+### v1.0 升级：六项补全（2026-08-06）
+
+本次升级将智序者从 v0.6 推向 v1.0，补全了工具层、配置系统、日志系统、记忆注入和技能编排。
+
+#### 1. 工具补全（3 → 6 个）
+- **新增文件读写 Tool**（`engine/tools/file_io.py`）：`read_file(filepath)` / `write_file(filepath, content, append)`
+  - 安全：仅允许项目根目录内读写，越界拒绝
+  - 大文件自动截断（默认 1MB，由 `config.tools.file.max_file_size` 控制）
+- **新增网页抓取 Tool**（`engine/tools/web_fetch.py`）：`web_fetch(url)` 
+  - 基于 requests，自动 HTML→纯文本，超时保护
+- **工具总数**：detect_host / verify_gpu / run_shell / read_file / write_file / web_fetch = 6 个
+
+#### 2. stdout 捕获 hack 重构
+- `detect_host.py`：原 `main()` 只 print，现增加 `detect_host()` 函数直接返回格式化字符串
+- `verify_gpu.py`：同理，原 `main()` → 新 `verify_gpu()` 返回字符串
+- `__main__.py` 移除了 `_capture_stdout` 包装器（40 行 hack 代码消失）
+
+#### 3. 统一配置系统
+- **新文件**：`config.yaml`（项目根）+ `engine/config.py`（解析 + 数据类）
+- 零依赖微型 YAML 解析器，支持环境变量插值 `${env:VAR_NAME}`
+- 所有硬编码常量（MAX_TOOL_ROUNDS、MAX_STEPS、MIN_SCORE 等）全部迁移到配置
+- 配置数据类：ModelConfig / AgentConfig / TaskConfig / MemoryConfig / LoggingConfig / ToolsConfig
+
+#### 4. 结构化日志
+- **新文件**：`engine/log.py` —— 基于 stdlib logging 的统一日志系统
+- 双通道输出：控制台（INFO 级别）+ 文件 `logs/agent.log`（DEBUG 级别，RotatingFileHandler 10MB×5）
+- 全项目 `print()` 替换为 `logger.info/debug/error/warning()`
+- Agent 生命周期事件全部记录（启动、会话恢复、退出、任务模式、工具调用）
+
+#### 5. TaskRunner 记忆注入
+- `TaskRunner` 新增 `memory_manager` 参数，在第一步 `_execute_step()` 中注入记忆上下文
+- 闭合了 CHANGELOG 标记的"任务模式无法利用历史经验"缺口
+- EXECUTE_SYSTEM 提示词新增 `{memory}` 占位符
+
+#### 6. SkillChain（Orchestrator v1）
+- **新文件**：`engine/core/orchestrator.py`
+- 实现 Anthropic 五模式中的 **Prompt Chaining**（顺序串联）
+- `SkillChain.run(initial_goal, skill_names)`：Skill A 输出 → 作为 Goal 喂给 Skill B
+- 每步走 `skill.plan()` 生成步骤，复用 TaskRunner 的 `_execute_step()` + `_synthesize()`
+- 设计原则：不做 DAG、不做并行、不做事件总线 —— 只做一件事：顺序串联
+
+#### 改造文件清单
+| 文件 | 改动 |
+|------|------|
+| `config.yaml` | 新文件：全局配置 |
+| `engine/config.py` | 新文件：配置解析 + 数据类 |
+| `engine/log.py` | 新文件：日志系统 |
+| `engine/tools/file_io.py` | 新文件：文件读写工具 |
+| `engine/tools/web_fetch.py` | 新文件：网页抓取工具 |
+| `engine/core/orchestrator.py` | 新文件：技能链编排器 |
+| `engine/tests/conftest.py` | 新文件：测试夹具 |
+| `engine/core/__main__.py` | 重写：移除 stdout hack，注册 6 个工具，初始化 config + logging |
+| `engine/core/react.py` | 重构：max_rounds 从 config 读取，logging 替换 print |
+| `engine/core/loop.py` | 重构：TaskRunner 传 memory_manager，logging 替换 print |
+| `engine/core/task.py` | 重构：memory_manager 参数 + 注入，config 读取，logging |
+| `engine/tools/detect_host.py` | 重构：新增 detect_host() 返回字符串，logging |
+| `engine/tools/verify_gpu.py` | 重构：新增 verify_gpu() 返回字符串，logging |
+| `engine/tools/shell.py` | 重构：timeout 从 config 读取 |
+| `engine/brain/deepseek_api.py` | 重构：model/url/retries/timeout 从 config 读取 |
+| `engine/core/memory_manager.py` | 重构：MAX_ENTRY_CHARS/max_entries 从 config 读取 |
+| `engine/core/memory_reader.py` | 重构：MIN_SCORE/DEDUP_THRESHOLD 从 config 读取 |
+| `engine/core/history.py` | 重构：print 替换为 logging |
+| `engine/core/recorder.py` | 重构：import logger |
+
+#### 测试结果
+- **20/20 全部通过**（16 个 react 测试 + 4 个 memory 测试）
+- 配置解析验证通过（int/float/str/list 类型全部正确）
+- 新增文件 IO 工具验证通过

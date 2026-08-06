@@ -14,6 +14,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from engine.config import config
+
 
 # ── 停用词 ──
 
@@ -138,13 +140,12 @@ def _score(query_terms: set[str], entry: dict) -> float:
 class MemoryReader:
     """记忆读取器 —— 从 memory/diary/ 和 memory/experience/ 检索相关条目"""
 
-    MIN_SCORE = 0.25      # 最低相关度阈值（低于此值视为噪声）
-    DEDUP_THRESHOLD = 0.7  # Jaccard 相似度超过此值视为重复
-
     def __init__(self, root: Path):
         self.root = root
         self.diary_dir = root / "memory" / "diary"
         self.experience_dir = root / "memory" / "experience"
+        self.MIN_SCORE = config.memory.min_score
+        self.DEDUP_THRESHOLD = config.memory.dedup_threshold
 
     # ── 公开接口 ──
 

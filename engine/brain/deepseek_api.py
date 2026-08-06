@@ -8,6 +8,10 @@ import requests
 
 from engine.brain.base import Brain, Message
 from engine.utils import load_dotenv
+from engine.config import config
+from engine.log import get_logger
+
+logger = get_logger(__name__)
 
 
 class DeepSeekAPIBrain(Brain):
@@ -19,8 +23,8 @@ class DeepSeekAPIBrain(Brain):
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "deepseek-v4-pro",
-        base_url: str = "https://api.deepseek.com/v1",
+        model: str | None = None,
+        base_url: str | None = None,
     ):
         root = Path(__file__).resolve().parent.parent.parent
         dotenv = load_dotenv(root)
@@ -37,8 +41,8 @@ class DeepSeekAPIBrain(Brain):
                 "  3. 代码传参：DeepSeekAPIBrain(api_key='你的key')\n"
                 "获取 Key：https://platform.deepseek.com/api_keys"
             )
-        self.model = model
-        self.base_url = base_url.rstrip("/")
+        self.model = model or config.model.model
+        self.base_url = (base_url or config.model.base_url).rstrip("/")
 
     def think(
         self,
@@ -64,13 +68,13 @@ class DeepSeekAPIBrain(Brain):
             payload["tools"] = tools
 
         last_error = ""
-        for attempt in range(3):
+        for attempt in range(config.model.max_retries):
             try:
                 resp = requests.post(
                     f"{self.base_url}/chat/completions",
                     headers=headers,
                     json=payload,
-                    timeout=60,
+                    timeout=config.model.request_timeout,
                 )
 
                 if resp.ok:
@@ -92,12 +96,13 @@ class DeepSeekAPIBrain(Brain):
             except requests.RequestException as e:
                 last_error = str(e)[:200]
 
-            # 指数退避：1s, 2s（最后一次不等待）
-            if attempt < 2:
+            # 指数退避
+            if attempt < config.model.max_retries - 1:
                 time.sleep(2 ** attempt)
 
-        # 3 次全败，返回错误消息而非崩溃
+        # 全败，返回错误消息而非崩溃
+        logger.error(f"API 调用失败（重试 {config.model.max_retries} 次后）: {last_error}")
         return Message(
             role="assistant",
-            content=f"[API 调用失败（重试 3 次后）] {last_error}",
+            content=f"[API 调用失败（重试 {config.model.max_retries} 次后）] {last_error}",
         )

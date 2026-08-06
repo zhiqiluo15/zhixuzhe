@@ -1,0 +1,272 @@
+"""智序者统一配置系统
+
+从项目根 config.yaml 加载配置，支持环境变量覆盖（${env:VAR_NAME} 语法）。
+所有模块通过 from engine.config import config 获取单例配置。
+
+用法：
+    from engine.config import config
+    max_rounds = config.agent.max_tool_rounds
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+# 项目根目录
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# 环境变量插值模式: ${env:VAR_NAME}
+_ENV_PATTERN = re.compile(r"\$\{env:([^}]+)\}")
+
+
+def _resolve_env(value: str) -> str:
+    """解析字符串中的 ${env:VAR} 引用"""
+    def _replace(m: re.Match) -> str:
+        return os.environ.get(m.group(1), "")
+    return _ENV_PATTERN.sub(_replace, value)
+
+
+def _resolve_dict(data: dict) -> dict:
+    """递归解析 dict 中的环境变量引用"""
+    result = {}
+    for k, v in data.items():
+        if isinstance(v, str):
+            result[k] = _resolve_env(v)
+        elif isinstance(v, dict):
+            result[k] = _resolve_dict(v)
+        elif isinstance(v, list):
+            result[k] = [_resolve_env(x) if isinstance(x, str) else x for x in v]
+        else:
+            result[k] = v
+    return result
+
+
+# ── 微型 YAML 解析器（仅支持所需语法，零依赖） ──
+
+def _parse_yaml(text: str) -> dict:
+    """解析简化 YAML：支持 key: value、嵌套 dict、list、# 注释。
+    不处理多行字符串、引用、tag 等高级特性。
+    """
+    lines = text.splitlines()
+    result: dict = {}
+    stack: list[tuple[int, dict]] = [(0, result)]  # (indent, target_dict)
+    list_context: tuple[int, dict, str] | None = None  # (indent, parent, key)
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        indent = len(line) - len(line.lstrip())
+
+        # 列表项: - value
+        if stripped.startswith("- "):
+            value = stripped[2:].strip().strip('"').strip("'")
+            # 解析值类型
+            value = _parse_value(value)
+
+            # 找到最近的 list context 或创建
+            if list_context and indent > list_context[0]:
+                # 追加到当前列表
+                list_context[1][list_context[2]].append(value)
+            continue
+
+        # key: value
+        if ":" in stripped:
+            key, _, val = stripped.partition(":")
+            key = key.strip()
+            val = val.strip()
+
+            # 去除行内注释 (e.g. "5  # comment")
+            if "#" in val:
+                # 注意：值中的 # 不应去除（如 URL 中的 #），但我们的配置不需要
+                val = val.split("#")[0].strip()
+
+            # 回退栈到合适的缩进级别
+            while stack and stack[-1][0] >= indent:
+                stack.pop()
+            if not stack:
+                # 顶层
+                current = result
+            else:
+                current = stack[-1][1]
+
+            if val == "":
+                # 嵌套 dict
+                nested: dict = {}
+                current[key] = nested
+                stack.append((indent, nested))
+            elif val.startswith("[") and val.endswith("]"):
+                # 列表值
+                items = val[1:-1].split(",")
+                current[key] = [
+                    _parse_value(i.strip().strip('"').strip("'")) for i in items if i.strip()
+                ]
+            else:
+                val = val.strip('"').strip("'")
+                current[key] = _parse_value(val)
+
+    return result
+
+
+def _parse_value(val: str):
+    """解析 YAML 值为 Python 类型"""
+    if val.lower() == "true":
+        return True
+    if val.lower() == "false":
+        return False
+    if val.lower() in ("null", "~", "none"):
+        return None
+    try:
+        if "." in val:
+            return float(val)
+        return int(val)
+    except ValueError:
+        return val
+
+
+# ── 配置数据类 ──
+
+@dataclass
+class ModelConfig:
+    provider: str = "deepseek"
+    model: str = "deepseek-v4-pro"
+    base_url: str = "https://api.deepseek.com/v1"
+    temperature: float = 0.7
+    max_tokens: int = 4096
+    request_timeout: int = 60
+    max_retries: int = 3
+
+
+@dataclass
+class AgentConfig:
+    max_tool_rounds: int = 5
+    max_tool_output_chars: int = 32000
+    confirm_tools: list[str] = field(default_factory=lambda: ["run_shell"])
+
+
+@dataclass
+class TaskConfig:
+    max_steps: int = 5
+    plan_retries: int = 3
+
+
+@dataclass
+class MemoryConfig:
+    min_score: float = 0.25
+    max_entries: int = 3
+    entry_max_chars: int = 300
+    dedup_threshold: float = 0.7
+
+
+@dataclass
+class LoggingConfig:
+    level: str = "INFO"
+    dir: str = "logs"
+    file_max_bytes: int = 10 * 1024 * 1024
+    file_backup_count: int = 5
+    format: str = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+
+@dataclass
+class ShellToolConfig:
+    default_timeout: int = 30
+    max_timeout: int = 120
+    max_retries: int = 2
+
+
+@dataclass
+class FileToolConfig:
+    max_file_size: int = 1 * 1024 * 1024
+    allowed_dirs: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ToolsConfig:
+    shell: ShellToolConfig = field(default_factory=ShellToolConfig)
+    file: FileToolConfig = field(default_factory=FileToolConfig)
+
+
+@dataclass
+class Config:
+    """智序者全局配置"""
+    model: ModelConfig = field(default_factory=ModelConfig)
+    agent: AgentConfig = field(default_factory=AgentConfig)
+    task: TaskConfig = field(default_factory=TaskConfig)
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
+    tools: ToolsConfig = field(default_factory=ToolsConfig)
+
+
+def load_config(path: Path | None = None) -> Config:
+    """从 YAML 文件加载配置，返回 Config 实例。
+
+    Args:
+        path: 配置文件路径，默认项目根 config.yaml
+
+    Returns:
+        Config 实例，文件不存在时返回默认配置
+    """
+    if path is None:
+        path = _PROJECT_ROOT / "config.yaml"
+
+    config = Config()
+
+    if not path.exists():
+        return config
+
+    raw = path.read_text(encoding="utf-8")
+    data = _resolve_dict(_parse_yaml(raw))
+
+    # 逐层合并
+    if "model" in data:
+        config.model = ModelConfig(**{
+            k: v for k, v in data["model"].items()
+            if k in ModelConfig.__dataclass_fields__
+        })
+
+    if "agent" in data:
+        config.agent = AgentConfig(**{
+            k: v for k, v in data["agent"].items()
+            if k in AgentConfig.__dataclass_fields__
+        })
+
+    if "task" in data:
+        config.task = TaskConfig(**{
+            k: v for k, v in data["task"].items()
+            if k in TaskConfig.__dataclass_fields__
+        })
+
+    if "memory" in data:
+        config.memory = MemoryConfig(**{
+            k: v for k, v in data["memory"].items()
+            if k in MemoryConfig.__dataclass_fields__
+        })
+
+    if "logging" in data:
+        config.logging = LoggingConfig(**{
+            k: v for k, v in data["logging"].items()
+            if k in LoggingConfig.__dataclass_fields__
+        })
+
+    if "tools" in data:
+        tools_data = data["tools"]
+        if "shell" in tools_data:
+            config.tools.shell = ShellToolConfig(**{
+                k: v for k, v in tools_data["shell"].items()
+                if k in ShellToolConfig.__dataclass_fields__
+            })
+        if "file" in tools_data:
+            config.tools.file = FileToolConfig(**{
+                k: v for k, v in tools_data["file"].items()
+                if k in FileToolConfig.__dataclass_fields__
+            })
+
+    return config
+
+
+# 全局单例
+config = load_config()

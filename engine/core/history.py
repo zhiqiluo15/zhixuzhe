@@ -64,5 +64,8 @@ class HistoryStore:
                 try:
                     messages.append(_deserialize(json.loads(line)))
                 except (json.JSONDecodeError, KeyError) as e:
-                    print(f"[HistoryStore] 跳过损坏行 {filepath.name}:{i + 1} — {e}")
+                    import logging
+                    logging.getLogger("zhixuzhe.engine.core.history").warning(
+                        f"跳过损坏行 {filepath.name}:{i + 1} — {e}"
+                    )
         return messages

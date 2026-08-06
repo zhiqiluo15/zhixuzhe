@@ -1,0 +1,48 @@
+# 智序者 v1 配置文件
+# 所有路径相对于项目根目录
+
+# ── 模型 ──
+model:
+  provider: deepseek
+  model: deepseek-v4-pro
+  base_url: https://api.deepseek.com/v1
+  temperature: 0.7
+  max_tokens: 4096
+  request_timeout: 60
+  max_retries: 3
+
+# ── Agent ──
+agent:
+  max_tool_rounds: 5          # ReAct 循环最大工具调用轮次
+  max_tool_output_chars: 32000 # 单次工具输出截断长度
+  confirm_tools: [run_shell]   # 需要 HITL 确认的工具
+
+# ── 任务模式 ──
+task:
+  max_steps: 5                # 最多执行步骤数
+  plan_retries: 3             # 规划解析重试次数
+
+# ── 记忆 ──
+memory:
+  min_score: 0.25             # 记忆检索最低相关度阈值
+  max_entries: 3              # 每次注入的最大记忆条数
+  entry_max_chars: 300        # 单条记忆截断长度
+  dedup_threshold: 0.7        # Jaccard 去重阈值
+
+# ── 日志 ──
+logging:
+  level: INFO                  # DEBUG | INFO | WARNING | ERROR
+  dir: logs                    # 日志目录（相对于项目根）
+  file_max_bytes: 10485760     # 单文件最大字节（10MB）
+  file_backup_count: 5         # 保留历史文件数
+  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+# ── 工具 ──
+tools:
+  shell:
+    default_timeout: 30
+    max_timeout: 120
+    max_retries: 2
+  file:
+    max_file_size: 1048576     # read_file 最大文件大小（1MB）
+    allowed_dirs: []            # write_file 允许的目录（空=仅项目内）

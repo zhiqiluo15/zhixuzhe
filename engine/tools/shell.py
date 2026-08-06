@@ -10,15 +10,13 @@
 import subprocess
 from pathlib import Path
 
+from engine.config import config
+
 # 项目根目录（工具脚本位于 engine/tools/，向上两级）
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-# 安全上限
-_MAX_TIMEOUT = 120  # 秒
-_DEFAULT_TIMEOUT = 30
 
-
-def run_shell(command: str, timeout: int = _DEFAULT_TIMEOUT) -> str:
+def run_shell(command: str, timeout: int | None = None) -> str:
     """执行 PowerShell 命令（Windows），返回 stdout + stderr + exit code
 
     Args:
@@ -28,7 +26,9 @@ def run_shell(command: str, timeout: int = _DEFAULT_TIMEOUT) -> str:
     Returns:
         命令输出（stdout），附加 stderr 和 exit code（如有）
     """
-    timeout = min(timeout, _MAX_TIMEOUT)
+    if timeout is None:
+        timeout = config.tools.shell.default_timeout
+    timeout = min(timeout, config.tools.shell.max_timeout)
 
     try:
         result = subprocess.run(

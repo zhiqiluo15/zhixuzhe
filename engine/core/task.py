@@ -15,7 +15,12 @@ from engine.tools.registry import ToolRegistry
 from engine.skills.registry import SkillRegistry
 from engine.core.router import Router
 from engine.core.recorder import Recorder
+from engine.core.memory_manager import MemoryManager
 from engine.core.react import react_loop, ConfirmCallback
+from engine.config import config
+from engine.log import get_logger
+
+logger = get_logger(__name__)
 
 # 规划提示词
 PLAN_SYSTEM = """你是一个任务规划器。将用户目标分解为具体、可执行的步骤。
@@ -35,7 +40,7 @@ PLAN_SYSTEM = """你是一个任务规划器。将用户目标分解为具体、
 EXECUTE_SYSTEM = """执行以下任务步骤。用工具获取真实信息，不要编造。
 
 目标：{goal}
-当前步骤：{step}{context}
+当前步骤：{step}{context}{memory}
 
 完成后用简洁语言汇报结果。"""
 
@@ -49,9 +54,6 @@ SYNTHESIZE_SYSTEM = """基于以下执行结果，回答用户的原始目标。
 
 请给出综合性的最终回答，要具体、有信息量、不编造。"""
 
-MAX_STEPS = 5
-MAX_TOOL_ROUNDS = 5
-
 
 class TaskRunner:
     """自主任务执行器 —— 规划 → 执行 → 综合 → 记录"""
@@ -62,11 +64,13 @@ class TaskRunner:
         tools: ToolRegistry,
         recorder: Recorder,
         skill_registry: SkillRegistry | None = None,
+        memory_manager: MemoryManager | None = None,
     ):
         self.brain = brain
         self.tools = tools
         self.recorder = recorder
         self.router = Router(skill_registry) if skill_registry else None
+        self.memory_manager = memory_manager
 
     def run(
         self,
@@ -80,11 +84,13 @@ class TaskRunner:
         skill = self.router.route(goal) if self.router else None
 
         if skill:
+            logger.info(f"匹配技能: {skill.name}")
             if verbose:
                 print(f"🎯 匹配技能: {skill.name}（{skill.description}）")
             plan = skill.plan(goal)
             plan_source = f"skill:{skill.name}"
         else:
+            logger.info("LLM 即兴规划中...")
             if verbose:
                 print("📋 规划中...", end=" ", flush=True)
             plan = self._plan(goal)
@@ -95,23 +101,31 @@ class TaskRunner:
                 print(f"  [{i + 1}] {s}")
 
         # 2. 逐步执行
+        # 注入记忆上下文到第一步
+        memory_context = ""
+        if self.memory_manager:
+            memory_context = self.memory_manager.build_context(goal)
+
         step_results: list[str] = []
         for i, step in enumerate(plan):
             if verbose:
                 print(f"\n⏳ [{i + 1}/{len(plan)}] {step[:50]}...", end=" ", flush=True)
             try:
                 result = self._execute_step(
-                    goal, step, i, plan, step_results[:i], confirm_callback,
+                    goal, step, i, plan, step_results[:i],
+                    confirm_callback, memory_context,
                 )
                 step_results.append(result)
                 if verbose:
                     print("✅")
             except Exception as e:
+                logger.error(f"步骤 {i + 1} 执行失败: {e}")
                 step_results.append(f"执行失败: {e}")
                 if verbose:
                     print(f"❌ {e}")
 
         # 3. 综合
+        logger.info("综合分析中...")
         if verbose:
             print("\n📝 综合分析中...", end=" ", flush=True)
         final = self._synthesize(goal, plan, step_results)
@@ -135,12 +149,12 @@ class TaskRunner:
             Message(role="user", content=goal),
         ]
 
-        for _ in range(3):
+        for attempt in range(config.task.plan_retries):
             response = self.brain.think(messages)
             steps = self._extract_json_steps(response.content)
             if steps:
-                return steps[:MAX_STEPS]
-            # 重试
+                return steps[:config.task.max_steps]
+            logger.debug(f"规划解析失败，重试 {attempt + 1}/{config.task.plan_retries}")
             messages.append(response)
             messages.append(Message(
                 role="user",
@@ -148,6 +162,7 @@ class TaskRunner:
             ))
 
         # 兜底：整个目标作为单步
+        logger.warning("规划解析全部失败，使用兜底单步")
         return [goal]
 
     def _execute_step(
@@ -158,9 +173,9 @@ class TaskRunner:
         plan: list[str],
         previous: list[str],
         confirm_callback: ConfirmCallback | None = None,
+        memory_context: str = "",
     ) -> str:
         """执行单个步骤（带工具调用的 ReAct 循环）"""
-        # 构建上下文：之前步骤的结果摘要
         context = ""
         if previous:
             prev_text = "\n".join(
@@ -169,14 +184,20 @@ class TaskRunner:
             )
             context = f"\n\n之前的步骤已完成：\n{prev_text}"
 
-        system = EXECUTE_SYSTEM.format(goal=goal, step=step, context=context)
+        memory = ""
+        if memory_context and step_idx == 0:
+            memory = f"\n\n{memory_context}"
+
+        system = EXECUTE_SYSTEM.format(
+            goal=goal, step=step, context=context, memory=memory,
+        )
         messages = [
             Message(role="system", content=system),
             Message(role="user", content=f"请执行第 {step_idx + 1}/{len(plan)} 步"),
         ]
 
         response = react_loop(
-            self.brain, messages, self.tools, MAX_TOOL_ROUNDS,
+            self.brain, messages, self.tools,
             confirm_callback=confirm_callback,
         )
 
@@ -201,7 +222,6 @@ class TaskRunner:
     @staticmethod
     def _extract_json_steps(text: str) -> list[str] | None:
         """从大脑回复中提取步骤列表，兼容多种格式"""
-        # 尝试纯 JSON
         for extract in [text, *re.findall(r"\{[\s\S]*?\}", text)]:
             try:
                 data = json.loads(extract)

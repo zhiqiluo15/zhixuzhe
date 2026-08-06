@@ -3,6 +3,10 @@
 from datetime import datetime
 from pathlib import Path
 
+from engine.log import get_logger
+
+logger = get_logger(__name__)
+
 
 class Recorder:
     """将 Agent 交互记录到 memory/diary/（私有灵魂层）"""

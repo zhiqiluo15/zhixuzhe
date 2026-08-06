@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""智序者 · 第一个手脚：宿主机检测（身体感知）
+"""智序者 · 宿主机检测（身体感知）
 
 功能：
   1. 全面检测宿主机硬件与软件情况（OS/CPU/内存/磁盘/Python/GPU/CUDA/PyTorch）
@@ -7,11 +7,10 @@
   3. 与上一版档案对比，识别宿主机是否变更（换机检测）
 
 用法：
-  python engine/tools/detect_host.py
+  python engine/tools/detect_host.py            # 独立运行，打印摘要
 
-产出：
-  memory/body/YYYYMMDD_HHMMSS.md   历史快照（保留可追溯）
-  memory/body/latest.md            当前档案（指向最新）
+API：
+  detect_host() -> str                          # 返回格式化报告，供 Tool 调用
 """
 
 import os
@@ -22,6 +21,10 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+
+from engine.log import get_logger
+
+logger = get_logger(__name__)
 
 # 项目根 = engine/tools/ 向上三级
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -178,7 +181,8 @@ def read_latest() -> dict | None:
     return previous or None
 
 
-def main() -> None:
+def detect_host() -> str:
+    """检测宿主机信息，保存档案，返回格式化报告。供 Tool 调用。"""
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     now = datetime.now()
     timestamp = now.strftime("%Y%m%d_%H%M%S")
@@ -228,27 +232,38 @@ def main() -> None:
 
     LATEST_FILE.write_text(content, encoding="utf-8")
 
-    # 控制台摘要
-    print(f"✅ 身体档案已生成：{snapshot.relative_to(ROOT)}")
-    print(f"✅ 当前档案已同步：{LATEST_FILE.relative_to(ROOT)}")
-    print()
-    print("── 宿主机摘要 ────────────────────────────")
+    # 日志
+    logger.info(f"身体档案已生成: {snapshot.relative_to(ROOT)}")
+
+    # 构建摘要
+    summary_lines = [
+        f"身体档案已生成: {snapshot.relative_to(ROOT)}",
+        "",
+        "── 宿主机摘要 ────────────────────────────",
+    ]
     for key in ["主机名", "操作系统", "CPU 型号", "内存总量"]:
         for line in content.splitlines():
             if line.startswith(f"- {key}："):
-                print(f"  {line[2:]}")
+                summary_lines.append(f"  {line[2:]}")
                 break
     gpu_line = next((l for l in content.splitlines()
                      if l.startswith("- GPU 列表：") or l.startswith("- GPU 型号：")), None)
     if gpu_line:
-        print(f"  {gpu_line[2:]}")
+        summary_lines.append(f"  {gpu_line[2:]}")
 
     if changed is None:
-        print("\n（首次建档，无历史对比）")
+        summary_lines.append("\n（首次建档，无历史对比）")
     elif changed:
-        print(f"\n⚠️  检测到宿主机变更：{', '.join(changed)}")
+        summary_lines.append(f"\n⚠️  检测到宿主机变更：{', '.join(changed)}")
     else:
-        print("\n（与上一版档案一致，未检测到宿主机变更）")
+        summary_lines.append("\n（与上一版档案一致，未检测到宿主机变更）")
+
+    return "\n".join(summary_lines)
+
+
+def main() -> None:
+    """独立运行入口"""
+    print(detect_host())
 
 
 if __name__ == "__main__":
