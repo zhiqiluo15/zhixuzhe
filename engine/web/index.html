@@ -122,6 +122,7 @@ footer {
   background: rgba(16,16,32,0.92); border: 1px solid rgba(167,139,250,0.08);
   border-radius: 14px; padding: 9px 14px;
   backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   box-shadow: 0 -4px 20px rgba(0,0,0,0.3);
 }
 .input-box textarea {
@@ -151,6 +152,7 @@ footer .hint {
   z-index: 100;
   background: rgba(2,2,10,0.92);
   backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   display: flex; align-items: center; justify-content: center;
   flex-direction: column; gap: 20px;
 }
@@ -209,7 +211,7 @@ footer .hint {
   <h2>设置 DeepSeek API Key</h2>
   <div class="setup-desc">
     智序者需要 DeepSeek API Key 才能运行。<br>
-    前往 <a href="https://platform.deepseek.com/api_keys" target="_blank">platform.deepseek.com</a> 获取。<br>
+    前往 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">platform.deepseek.com</a> 获取。<br>
     Key 会安全保存在项目 .env 文件中，不会上传。
   </div>
   <div class="setup-input">
