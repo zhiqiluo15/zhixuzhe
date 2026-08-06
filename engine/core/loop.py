@@ -9,7 +9,7 @@ from engine.brain.base import Brain, Message
 from engine.tools.registry import ToolRegistry
 from engine.skills.registry import SkillRegistry
 from engine.core.recorder import Recorder
-from engine.core.react import react_loop, ConfirmCallback
+from engine.core.react import react_loop, ConfirmCallback, StreamCallback
 from engine.core.task import TaskRunner
 from engine.core.history import HistoryStore
 from engine.core.memory_manager import MemoryManager
@@ -90,8 +90,13 @@ class Agent:
 
     # ── 核心循环 ──
 
-    def run(self, user_input: str) -> str:
-        """单次交互：接收用户输入，返回响应（默认流式输出）。"""
+    def run(self, user_input: str, stream_callback: StreamCallback | None = None) -> str:
+        """单次交互：接收用户输入，返回响应。
+
+        Args:
+            user_input: 用户消息
+            stream_callback: 可选流式回调。None 时默认 terminal 打印。
+        """
         user_msg = Message(role="user", content=user_input)
 
         # 注入记忆上下文
@@ -106,23 +111,30 @@ class Agent:
 
         messages = [system_msg] + self.history + [user_msg]
 
-        # 流式输出：打印前缀，逐 chunk 输出，不换行
-        first = [True]  # 用列表实现闭包可变引用
+        # 流式回调：未指定时用 terminal 打印
+        if stream_callback is None:
+            first = [True]
 
-        def stream_print(chunk: str) -> None:
-            if first[0]:
-                print("\n智序者 > ", end="", flush=True)
-                first[0] = False
-            print(chunk, end="", flush=True)
+            def stream_print(chunk: str) -> None:
+                if first[0]:
+                    print("\n智序者 > ", end="", flush=True)
+                    first[0] = False
+                print(chunk, end="", flush=True)
+
+            cb = stream_print
+            cli = True
+        else:
+            cb = stream_callback
+            cli = False
 
         response = react_loop(
             self.brain, messages, self.tools,
-            confirm_callback=self._hitl_confirm,
-            stream_callback=stream_print,
+            confirm_callback=self._hitl_confirm if cli else None,
+            stream_callback=cb,
         )
 
-        # 流式输出后换行
-        if not first[0]:
+        # CLI 模式换行
+        if cli and not first[0]:
             print()
 
         # 记录
