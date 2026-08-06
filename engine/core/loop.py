@@ -9,7 +9,7 @@ from engine.brain.base import Brain, Message
 from engine.tools.registry import ToolRegistry
 from engine.skills.registry import SkillRegistry
 from engine.core.recorder import Recorder
-from engine.core.react import react_loop
+from engine.core.react import react_loop, ConfirmCallback
 from engine.core.task import TaskRunner
 from engine.core.history import HistoryStore
 from engine.core.memory_manager import MemoryManager
@@ -23,6 +23,9 @@ SYSTEM_PROMPT = """你是智序者（zhixuzhe），一个以 DeepSeek 为基座�
 
 MAX_TOOL_ROUNDS = 5
 
+# 默认需要 HITL 确认的工具名（外部操作，有副作用风险）
+DEFAULT_CONFIRM_TOOLS = {"run_shell"}
+
 
 def _show_help() -> None:
     print("命令：")
@@ -32,6 +35,7 @@ def _show_help() -> None:
     print("  help          显示此帮助")
     print("  exit          退出")
     print()
+    print("安全提示：执行命令（run_shell）前会要求确认，输入 y 继续 / n 取消。")
 
 
 class Agent:
@@ -45,6 +49,7 @@ class Agent:
         history_store: HistoryStore | None = None,
         skill_registry: SkillRegistry | None = None,
         memory_manager: MemoryManager | None = None,
+        confirm_tools: set[str] | None = None,
     ):
         self.brain = brain
         self.tools = tools
@@ -52,6 +57,7 @@ class Agent:
         self.history_store = history_store
         self.skill_registry = skill_registry
         self.memory_manager = memory_manager
+        self.confirm_tools = confirm_tools or set()
         self.history: list[Message] = []
         self.system = Message(role="system", content=SYSTEM_PROMPT)
         self.task_runner = TaskRunner(brain, tools, recorder, skill_registry)
@@ -67,6 +73,27 @@ class Agent:
             else:
                 current = history_store.new_session()
                 print(f"[HistoryStore] 无历史会话，新建: {current.name}")
+
+    # ── HITL 确认回调 ──
+
+    def _hitl_confirm(self, tool_name: str, args: dict) -> bool:
+        """交互式 HITL 确认：需要确认的工具打印信息并等待用户输入
+
+        非确认列表中的工具直接放行。
+        """
+        if tool_name not in self.confirm_tools:
+            return True
+
+        # 格式化参数显示
+        args_str = " ".join(f"{k}={v}" for k, v in args.items())
+        prompt = f"\n  ⚠️  工具调用: {tool_name}({args_str})\n  → 执行? [y/N] "
+        try:
+            answer = input(prompt).strip().lower()
+            return answer in ("y", "yes")
+        except (EOFError, KeyboardInterrupt):
+            return False
+
+    # ── 核心循环 ──
 
     def run(self, user_input: str) -> str:
         """单次交互：接收用户输入，返回响应"""
@@ -84,7 +111,10 @@ class Agent:
 
         messages = [system_msg] + self.history + [user_msg]
 
-        response = react_loop(self.brain, messages, self.tools, MAX_TOOL_ROUNDS)
+        response = react_loop(
+            self.brain, messages, self.tools, MAX_TOOL_ROUNDS,
+            confirm_callback=self._hitl_confirm,
+        )
 
         # 记录
         self.history.append(user_msg)
@@ -131,13 +161,16 @@ class Agent:
                     print("\n暂无注册技能。\n")
                 continue
 
-            # 任务模式
+            # 任务模式（带 HITL）
             if user_input.lower().startswith("task "):
                 goal = user_input[5:].strip()
                 if not goal:
                     print("用法: task <目标描述>")
                     continue
-                response = self.task_runner.run(goal)
+                response = self.task_runner.run(
+                    goal,
+                    confirm_callback=self._hitl_confirm,
+                )
                 print(f"\n═══ 最终结论 ═══\n\n{response}\n")
                 continue
 

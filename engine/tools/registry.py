@@ -1,10 +1,11 @@
 """工具注册表 —— 管理所有手脚的注册与调用"""
 
+import time
 from typing import Callable
 
 
 class Tool:
-    """单个工具"""
+    """单个工具（支持自动重试）"""
 
     def __init__(
         self,
@@ -12,6 +13,7 @@ class Tool:
         description: str,
         func: Callable,
         parameters: dict | None = None,
+        max_retries: int = 0,
     ):
         self.name = name
         self.description = description
@@ -21,12 +23,22 @@ class Tool:
             "properties": {},
             "required": [],
         }
+        self.max_retries = max_retries  # 0 = 不重试，最多 3 次
 
     def execute(self, **kwargs) -> str:
-        try:
-            return str(self.func(**kwargs))
-        except Exception as e:
-            return f"工具执行失败: {e}"
+        last_error = None
+        attempts = self.max_retries + 1
+        for attempt in range(attempts):
+            try:
+                return str(self.func(**kwargs))
+            except Exception as e:
+                last_error = e
+                if attempt < self.max_retries:
+                    wait = 2 ** attempt  # 指数退避: 1s, 2s, 4s
+                    time.sleep(wait)
+        return (
+            f"工具执行失败（已重试 {self.max_retries} 次）: {last_error}"
+        )
 
     def to_openai_spec(self) -> dict:
         return {

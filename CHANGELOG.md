@@ -236,3 +236,27 @@
   - 检索为纯关键词匹配，无语义理解（未来可升级为向量检索）
   - 经验目录为空，需实际任务积累后才能体现效果
   - TaskRunner（任务模式）暂未注入记忆上下文，待后续迭代
+
+### 安全执行三角落地：命令执行 + 错误恢复 + HITL（2026-08-06）
+- **动机**：CHANGELOG 标记的已知差距"手脚太少"和"无安全边界"——之前只有 2 个硬件检测工具，没有文件读写、命令执行等通用手脚。加入外部操作工具前必须先建立安全边界（超时、确认、重试），否则误操作风险高。
+- **核心设计**：三个正交机制叠加构成安全执行三角：
+  - **命令执行 Tool**（`engine/tools/shell.py`）：PowerShell 命令执行，超时保护（默认 30s，最大 120s），工作目录限制在项目根，非交互模式（-NoProfile -NonInteractive），stdin=DEVNULL 防挂起。
+  - **错误恢复（Retry）**：`Tool.execute()` 新增 `max_retries` 参数，指数退避（1s→2s→4s），最多 3 次。默认 0（不重试），网络/瞬态错误类 Tool 可设 `max_retries=2`。
+  - **HITL（Human-in-the-Loop）**：`react_loop()` 新增 `confirm_callback` 参数，每轮工具调用前触发。Agent 维护 `confirm_tools` 集合（默认 `{"run_shell"}`），命中时 REPL 交互式询问 `[y/N]`。TaskRunner 同步支持，确保任务模式和对话模式一致的安全策略。
+- **Tool 数量**：从 2 个（detect_host / verify_gpu）增加到 3 个（+ run_shell）。一个 Shell 工具覆盖文件读写（cat/dir/ls）、环境检测（python -m pip list）、代码执行（python script.py）等 —— 以最少的工具数撬动最大的操作面。
+- **改造文件**：
+  - `engine/tools/shell.py` — 新文件：run_shell(command, timeout)
+  - `engine/tools/registry.py` — `Tool` 新增 `max_retries`，`execute()` 内置重试循环
+  - `engine/core/react.py` — `react_loop()` 新增 `confirm_callback` 参数，HITL 拦截点
+  - `engine/core/loop.py` — Agent 新增 `confirm_tools` + `_hitl_confirm()` 方法；help 文本更新
+  - `engine/core/task.py` — `TaskRunner.run()` / `_execute_step()` 透传 `confirm_callback`
+  - `engine/core/__main__.py` — 注册 run_shell Tool（max_retries=2），注入 DEFAULT_CONFIRM_TOOLS
+- **向后兼容**：`max_retries=0`（默认）行为不变；`confirm_callback=None`（默认）不触发 HITL；`confirm_tools` 默认为空集合时所有工具直接放行。所有原有测试无需修改且全部通过（16/16 + 4/4 内存测试）。
+- **安全三角运转流程**：
+  ```
+  Brain 决定调 run_shell(command="pip list")
+    → HITL: ⚠️ 工具调用: run_shell(command=pip list) → 执行? [y/N]
+    → 用户输入 y → 执行
+    → 失败? → 自动重试（1s 后）→ 失败? → 自动重试（2s 后）
+    → 仍失败 → 返回错误信息给 Brain
+  ```

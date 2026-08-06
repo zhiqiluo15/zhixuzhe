@@ -15,7 +15,7 @@ from engine.tools.registry import ToolRegistry
 from engine.skills.registry import SkillRegistry
 from engine.core.router import Router
 from engine.core.recorder import Recorder
-from engine.core.react import react_loop
+from engine.core.react import react_loop, ConfirmCallback
 
 # 规划提示词
 PLAN_SYSTEM = """你是一个任务规划器。将用户目标分解为具体、可执行的步骤。
@@ -68,7 +68,12 @@ class TaskRunner:
         self.recorder = recorder
         self.router = Router(skill_registry) if skill_registry else None
 
-    def run(self, goal: str, verbose: bool = True) -> str:
+    def run(
+        self,
+        goal: str,
+        verbose: bool = True,
+        confirm_callback: ConfirmCallback | None = None,
+    ) -> str:
         """执行一个目标，返回最终结论"""
         # 1. 规划（优先技能匹配 → 回退 LLM 即兴规划）
         plan_source = "llm"
@@ -95,7 +100,9 @@ class TaskRunner:
             if verbose:
                 print(f"\n⏳ [{i + 1}/{len(plan)}] {step[:50]}...", end=" ", flush=True)
             try:
-                result = self._execute_step(goal, step, i, plan, step_results[:i])
+                result = self._execute_step(
+                    goal, step, i, plan, step_results[:i], confirm_callback,
+                )
                 step_results.append(result)
                 if verbose:
                     print("✅")
@@ -150,6 +157,7 @@ class TaskRunner:
         step_idx: int,
         plan: list[str],
         previous: list[str],
+        confirm_callback: ConfirmCallback | None = None,
     ) -> str:
         """执行单个步骤（带工具调用的 ReAct 循环）"""
         # 构建上下文：之前步骤的结果摘要
@@ -167,7 +175,10 @@ class TaskRunner:
             Message(role="user", content=f"请执行第 {step_idx + 1}/{len(plan)} 步"),
         ]
 
-        response = react_loop(self.brain, messages, self.tools, MAX_TOOL_ROUNDS)
+        response = react_loop(
+            self.brain, messages, self.tools, MAX_TOOL_ROUNDS,
+            confirm_callback=confirm_callback,
+        )
 
         return response.content
 
