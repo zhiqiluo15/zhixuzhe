@@ -1,41 +1,61 @@
 @echo off
 setlocal enabledelayedexpansion
-title 智序者 Web UI
+title zhixuzhe Web
 cd /d "%~dp0"
 
-echo ╔══════════════════════════════════════╗
-echo ║       智序者 zhixuzhe v1 - Web     ║
-echo ╚══════════════════════════════════════╝
+echo ==========================================
+echo        zhixuzhe v1 - Web
+echo ==========================================
 echo.
 
-REM 检查 .env
+REM Check .env
 if not exist ".env" (
-    echo   首次运行，需要设置 DeepSeek API Key.
-    echo   获取 Key: https://platform.deepseek.com/api_keys
+    echo   First run: need DeepSeek API Key
+    echo   Get Key: https://platform.deepseek.com/api_keys
     echo.
-    set /p KEY="  请输入 DEEPSEEK_API_KEY: "
+    set /p KEY="  Enter DEEPSEEK_API_KEY: "
     if "!KEY!"=="" (
-        echo   错误: 未输入 Key，退出.
+        echo   Error: no key entered
         pause
         exit /b 1
     )
     echo DEEPSEEK_API_KEY=!KEY!> .env
-    echo   已保存到 .env
+    echo   Saved to .env
     echo.
 )
 
-echo   启动中... 稍后会自动打开浏览器
-echo   如果未打开，请访问 http://localhost:8080
+REM Kill any existing process on port 8080
+echo   Checking port 8080...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :8080 ^| findstr LISTENING') do (
+    echo   Killing existing process (PID %%a^)...
+    taskkill /f /pid %%a > nul 2>&1
+)
+
+REM Start web server (background, hidden window)
+echo   Starting server...
+start "" /min python engine\web_server.py 8080
+
+REM Wait and verify
+echo   Waiting for server...
+set /a count=0
+:wait_loop
+timeout /t 1 /nobreak > nul
+set /a count+=1
+netstat -ano | findstr ":8080" | findstr "LISTENING" > nul
+if %errorlevel%==0 goto :server_ok
+if %count% lss 10 goto :wait_loop
+
+echo   ERROR: server failed to start
+echo   Check that Python is installed and dependencies are met
+pause
+exit /b 1
+
+:server_ok
+echo   Server ready: http://localhost:8080
 echo.
 
-REM 启动 Web Server（后台不阻塞）+ 延时后打开浏览器
-start "智序者 Web" python engine\web_server.py 8080
-
-REM 等 2 秒让服务启动
-timeout /t 2 /nobreak > nul
-
+REM Open browser
 start "" http://localhost:8080
 
-echo.
-echo   服务运行中。关闭此窗口将停止服务。
+echo   Service is running. Close this window to stop.
 pause

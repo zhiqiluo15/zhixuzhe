@@ -1,28 +1,31 @@
 @echo off
 setlocal enabledelayedexpansion
-title 智序者 zhixuzhe v1
+title zhixuzhe CLI
 cd /d "%~dp0"
 
-echo ╔══════════════════════════════════════╗
-echo ║          智序者 zhixuzhe v1         ║
-echo ╚══════════════════════════════════════╝
+echo ==========================================
+echo         zhixuzhe v1 - CLI
+echo ==========================================
 echo.
 
-REM 检查 .env
+REM Check .env
 if not exist ".env" (
-    echo   首次运行，需要设置 DeepSeek API Key.
-    echo   获取 Key: https://platform.deepseek.com/api_keys
+    echo   First run: need DeepSeek API Key
+    echo   Get Key: https://platform.deepseek.com/api_keys
     echo.
-    set /p KEY="  请输入 DEEPSEEK_API_KEY: "
+    set /p KEY="  Enter DEEPSEEK_API_KEY: "
     if "!KEY!"=="" (
-        echo   错误: 未输入 Key，退出.
+        echo   Error: no key entered
         pause
         exit /b 1
     )
     echo DEEPSEEK_API_KEY=!KEY!> .env
-    echo   已保存到 .env
+    echo   Saved to .env
     echo.
 )
 
+REM Start CLI Agent
+echo   Starting zhixuzhe Agent...
+echo.
 python -m engine.core
 pause
