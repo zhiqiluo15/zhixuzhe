@@ -211,3 +211,28 @@
 - **向后兼容**：`skill_registry=None`（默认）时行为与旧代码完全一致；TaskRunner / Agent 原有测试无改动且全部通过（16/16）。
 - **效果**：用户输入 `task 检测硬件并判断QLoRA条件` → Router 匹配 `hardware_check` → 跳过 LLM 规划，直接执行 3 步罐装计划 → 省 1 次 API 调用，步骤始终一致。
 - **层次关系**：Tool（原子动作）→ Skill（Tool + 预设推理的复合体）→ TaskRunner（Skill 编排 + LLM 即兴兜底）。三层各司其职，不互相替代。
+
+### 分层记忆落地：读写闭合（2026-08-06）
+- **动机**：CHANGELOG 标记的已知缺陷"记忆只写不读"——Recorder 负责写日记，HistoryStore 负责持久化对话，但没有任何东西把历史经验回注入上下文。自进化闭环缺"回顾"环节。
+- **核心设计**：
+  - **MemoryReader**（读端）：从 `memory/diary/` 和 `memory/experience/` 检索相关历史条目。v1 检索策略为混合中英文分词（中文 2-gram + 英文单词）+ 关键词重叠评分 + Jaccard 去重，无外部依赖。
+  - **MemoryManager**（协调层）：调用 Reader 检索 → 格式化 → 返回上下文字符串，供 Agent 注入 system prompt。
+  - **Recorder.record_experience()**（写端增强）：新增经验写入方法，格式 `**场景**/ **教训**`，写入 `memory/experience/YYYYMMDD.md`，与日记并行但独立检索。
+- **Agent 集成**：每轮 `run()` 前调用 `MemoryManager.build_context(user_input)`，命中则拼接到 system prompt 末尾的 `【相关历史经验】` 区块；无命中则透传原 system prompt。对 Brain 完全透明。
+- **检索效果验证**：
+  - `QLoRA 微调条件` → 命中硬件检测任务（score 0.75）
+  - `GPU 显卡型号` → 命中 2 条相关记录（score 0.75）
+  - `今天晚饭吃什么` → 无结果（正确，无晚餐相关记录）
+  - 去重有效：大量测试产生的重复条目被折叠
+- **新文件**：
+  - `engine/core/memory_reader.py` — `MemoryReader`：日记/经验解析 + 检索
+  - `engine/core/memory_manager.py` — `MemoryManager`：检索协调 + 上下文格式化
+- **改造文件**：
+  - `engine/core/recorder.py` — 新增 `record_experience()`，`experience_dir` 初始化
+  - `engine/core/loop.py` — Agent 接受可选 `memory_manager`，`run()` 注入记忆上下文
+  - `engine/core/__main__.py` — 入口组装 MemoryReader → MemoryManager → Agent
+- **向后兼容**：`memory_manager=None` 时行为与旧代码完全一致；所有测试无需修改且全部通过（16/16）。
+- **已知局限**：
+  - 检索为纯关键词匹配，无语义理解（未来可升级为向量检索）
+  - 经验目录为空，需实际任务积累后才能体现效果
+  - TaskRunner（任务模式）暂未注入记忆上下文，待后续迭代

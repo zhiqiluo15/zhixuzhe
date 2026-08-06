@@ -1,0 +1,199 @@
+"""记忆读取器 —— 从灵魂层检索相关历史经验
+
+对比 Recorder（只写），MemoryReader 是"只读"端。
+闭合了 CHANGELOG 标记的"记忆只写不读"缺陷。
+
+检索策略（v1，无外部依赖）：
+- 混合中英文分词（中文 2-gram + 英文单词）
+- 关键词重叠评分
+- 内容去重（跳过高度相似的条目）
+- 按相关度降序返回 top-k
+"""
+
+import re
+from datetime import datetime
+from pathlib import Path
+
+
+# ── 分词 ──
+
+def _tokenize(text: str) -> set[str]:
+    """混合中英文分词：中文用 2-gram，英文用单词（≥2字符）"""
+    tokens: set[str] = set()
+    # 英文单词
+    for m in re.finditer(r"[a-zA-Z]{2,}", text):
+        tokens.add(m.group().lower())
+    # 中文 2-gram
+    cn = re.sub(r"[^\u4e00-\u9fff]", "", text)
+    for i in range(len(cn) - 1):
+        tokens.add(cn[i : i + 2])
+    return tokens
+
+
+# ── 去重 ──
+
+def _jaccard_similarity(a: str, b: str) -> float:
+    """计算两段文本的 bigram Jaccard 相似度"""
+    if not a or not b:
+        return 0.0
+    ta = _tokenize(a)
+    tb = _tokenize(b)
+    if not ta or not tb:
+        return 0.0
+    intersect = ta & tb
+    union = ta | tb
+    return len(intersect) / len(union)
+
+
+# ── 条目解析 ──
+
+def _parse_diary_entries(content: str) -> list[dict]:
+    """将日记文件中 ## 开头的条目解析为 {title, body} 列表
+
+    跳过头部的叙述段落（时间戳之前的内容）。
+    """
+    entries: list[dict] = []
+    lines = content.split("\n")
+    current_title = ""
+    current_body: list[str] = []
+    in_header = True  # 第一个 ## 之前为文件头
+
+    for line in lines:
+        if line.startswith("## ") and _is_timestamped(line):
+            if current_body:
+                entries.append({
+                    "title": current_title,
+                    "body": "\n".join(current_body).strip(),
+                })
+            in_header = False
+            current_title = line[3:].strip()
+            current_body = []
+        elif not in_header:
+            current_body.append(line)
+
+    # 最后一条
+    if current_body:
+        entries.append({
+            "title": current_title,
+            "body": "\n".join(current_body).strip(),
+        })
+
+    return entries
+
+
+def _is_timestamped(line: str) -> bool:
+    """判断 ## 行是否以时间戳开头（## HH:MM 或 ## [任务] HH:MM）"""
+    bare = line[3:].strip()
+    # ## HH:MM:SS
+    if re.match(r"\d{2}:\d{2}:\d{2}", bare):
+        return True
+    # ## [任务] HH:MM:SS
+    if re.match(r"\[任务\]\s*\d{2}:\d{2}:\d{2}", bare):
+        return True
+    return False
+
+
+def _parse_experience_entries(content: str) -> list[dict]:
+    """解析经验文件中的条目（## 开头）"""
+    return _parse_diary_entries(content)
+
+
+# ── 评分与检索 ──
+
+def _score(query_terms: set[str], entry: dict) -> float:
+    """计算条目对查询的相关度分数（0~1）"""
+    text = entry["title"] + " " + entry["body"]
+    entry_terms = _tokenize(text)
+    if not query_terms:
+        return 0.0
+    overlap = query_terms & entry_terms
+    return len(overlap) / len(query_terms)
+
+
+class MemoryReader:
+    """记忆读取器 —— 从 memory/diary/ 和 memory/experience/ 检索相关条目"""
+
+    MIN_SCORE = 0.2       # 最低相关度阈值（低于此值视为噪声）
+    DEDUP_THRESHOLD = 0.7  # Jaccard 相似度超过此值视为重复
+
+    def __init__(self, root: Path):
+        self.root = root
+        self.diary_dir = root / "memory" / "diary"
+        self.experience_dir = root / "memory" / "experience"
+
+    # ── 公开接口 ──
+
+    def retrieve(self, query: str, max_entries: int = 5) -> list[dict]:
+        """综合检索日记 + 经验，返回去重后的 top-k 条目列表
+
+        每个条目格式：{"source": "diary"|"experience", "date": str, "content": str, "score": float}
+        """
+        results: list[dict] = []
+        results.extend(self.retrieve_diary(query, max_entries * 2))
+        results.extend(self.retrieve_experience(query, max_entries))
+        results.sort(key=lambda r: r["score"], reverse=True)
+        return self._dedup(results, max_entries)
+
+    def retrieve_diary(self, query: str, top_k: int = 5) -> list[dict]:
+        """仅检索日记"""
+        return self._search_dir(self.diary_dir, query, top_k, "diary")
+
+    def retrieve_experience(self, query: str, top_k: int = 5) -> list[dict]:
+        """仅检索个人经验"""
+        return self._search_dir(self.experience_dir, query, top_k, "experience")
+
+    # ── 内部方法 ──
+
+    def _search_dir(
+        self, directory: Path, query: str, top_k: int, source: str
+    ) -> list[dict]:
+        """搜索目录下所有 .md 文件"""
+        if not directory.exists():
+            return []
+
+        query_terms = _tokenize(query)
+        if not query_terms:
+            return []
+
+        scored: list[dict] = []
+        for md_file in sorted(directory.glob("*.md"), reverse=True):
+            try:
+                content = md_file.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            entries = _parse_diary_entries(content)
+            date_str = _extract_date(md_file.name)
+            for entry in entries:
+                s = _score(query_terms, entry)
+                if s >= self.MIN_SCORE:
+                    scored.append({
+                        "source": source,
+                        "date": date_str,
+                        "content": f"{entry['title']}\n{entry['body'][:500]}",
+                        "score": round(s, 3),
+                    })
+
+        scored.sort(key=lambda r: r["score"], reverse=True)
+        return scored[:top_k]
+
+    def _dedup(self, results: list[dict], max_entries: int) -> list[dict]:
+        """按内容相似度去重，保留分数更高的"""
+        keep: list[dict] = []
+        for r in results:
+            if len(keep) >= max_entries:
+                break
+            is_dup = any(
+                _jaccard_similarity(r["content"], k["content"]) > self.DEDUP_THRESHOLD
+                for k in keep
+            )
+            if not is_dup:
+                keep.append(r)
+        return keep
+
+
+def _extract_date(filename: str) -> str:
+    """从文件名提取日期，如 20260805.md → 2026-08-05"""
+    m = re.match(r"(\d{4})(\d{2})(\d{2})", filename)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    return ""

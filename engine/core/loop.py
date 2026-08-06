@@ -12,6 +12,7 @@ from engine.core.recorder import Recorder
 from engine.core.react import react_loop
 from engine.core.task import TaskRunner
 from engine.core.history import HistoryStore
+from engine.core.memory_manager import MemoryManager
 
 SYSTEM_PROMPT = """你是智序者（zhixuzhe），一个以 DeepSeek 为基座的智能助手。
 
@@ -43,12 +44,14 @@ class Agent:
         recorder: Recorder,
         history_store: HistoryStore | None = None,
         skill_registry: SkillRegistry | None = None,
+        memory_manager: MemoryManager | None = None,
     ):
         self.brain = brain
         self.tools = tools
         self.recorder = recorder
         self.history_store = history_store
         self.skill_registry = skill_registry
+        self.memory_manager = memory_manager
         self.history: list[Message] = []
         self.system = Message(role="system", content=SYSTEM_PROMPT)
         self.task_runner = TaskRunner(brain, tools, recorder, skill_registry)
@@ -68,7 +71,18 @@ class Agent:
     def run(self, user_input: str) -> str:
         """单次交互：接收用户输入，返回响应"""
         user_msg = Message(role="user", content=user_input)
-        messages = [self.system] + self.history + [user_msg]
+
+        # 注入记忆上下文
+        system_msg = self.system
+        if self.memory_manager:
+            ctx = self.memory_manager.build_context(user_input)
+            if ctx:
+                system_msg = Message(
+                    role="system",
+                    content=self.system.content + "\n\n" + ctx,
+                )
+
+        messages = [system_msg] + self.history + [user_msg]
 
         response = react_loop(self.brain, messages, self.tools, MAX_TOOL_ROUNDS)
 

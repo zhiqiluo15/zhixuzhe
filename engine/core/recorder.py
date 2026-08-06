@@ -11,6 +11,8 @@ class Recorder:
         self.root = root
         self.diary_dir = root / "memory" / "diary"
         self.diary_dir.mkdir(parents=True, exist_ok=True)
+        self.experience_dir = root / "memory" / "experience"
+        self.experience_dir.mkdir(parents=True, exist_ok=True)
 
     def record(self, user_input: str, response: str) -> None:
         """记录一次交互"""
@@ -40,6 +42,26 @@ class Recorder:
             entry += f"- 步骤 {i + 1}: {r[:200]}{'...' if len(r) > 200 else ''}\n"
         entry += f"\n**最终结论**：\n{final_answer}\n\n---\n\n"
         self._write(entry)
+
+    def record_experience(self, scene: str, lesson: str) -> None:
+        """记录一条个人经验到 memory/experience/
+
+        Args:
+            scene: 场景描述（发生了什么）
+            lesson: 吸取的教训/经验
+        """
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        entry = f"## {timestamp}\n\n**场景**：{scene}\n\n**教训**：{lesson}\n\n---\n\n"
+        self._write_experience(entry)
+
+    def _write_experience(self, entry: str) -> None:
+        """写经验到当日经验文件"""
+        filepath = self.experience_dir / f"{datetime.now().strftime('%Y%m%d')}.md"
+        if not filepath.exists():
+            date_str = datetime.now().strftime("%Y-%m-%d")
+            entry = f"# 智序者经验 - {date_str}\n\n" + entry
+        with open(filepath, "a", encoding="utf-8") as f:
+            f.write(entry)
 
     def _write(self, entry: str) -> None:
         """写条目到当日日记文件，首次写入时自动加 header"""

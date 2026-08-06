@@ -32,6 +32,8 @@ def main() -> None:
     from engine.core.loop import Agent
     from engine.core.recorder import Recorder
     from engine.core.history import HistoryStore
+    from engine.core.memory_reader import MemoryReader
+    from engine.core.memory_manager import MemoryManager
 
     # ── 大脑 ──
     try:
@@ -64,11 +66,16 @@ def main() -> None:
     recorder = Recorder(root=project_root)
     history_store = HistoryStore(root=project_root)
 
+    # 分层记忆（读写闭合）
+    memory_reader = MemoryReader(root=project_root)
+    memory_manager = MemoryManager(memory_reader)
+
     # ── 组装并启动 ──
     agent = Agent(
         brain=brain, tools=tools,
         recorder=recorder, history_store=history_store,
         skill_registry=skills,
+        memory_manager=memory_manager,
     )
     agent.interactive()
 
