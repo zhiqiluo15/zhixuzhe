@@ -331,3 +331,18 @@
 - **20/20 全部通过**（16 个 react 测试 + 4 个 memory 测试）
 - 配置解析验证通过（int/float/str/list 类型全部正确）
 - 新增文件 IO 工具验证通过
+
+---
+
+### 流式输出（SSE）（2026-08-06）
+
+- **动机**：v1 的 `brain.think()` 一次性返回完整响应，用户需等待全部输出后才能看到内容，体验差。
+- **设计原则**：不与 ReAct 循环耦合。`think_stream()` 是 Brain 的可选能力，`react_loop()` 通过 `stream_callback` 透明接入。
+- **实现层次**：
+  - `Brain` 基类新增 `think_stream()` 方法：默认回退到 `think()`，一次性产出全部文本后 done。子类可覆写实现真正的 SSE。
+  - `DeepSeekAPIBrain.think_stream()`：使用 `stream: true` + `iter_lines()` 解析 SSE 数据流。tool_calls 跨 chunk 累积合并，文本块逐 token 产出。
+  - `react_loop()` 新增 `stream_callback: Callable[[str], None]` 参数。内部 `_get_response()` 统一分流：有 callback 走 `think_stream()`，无则走 `think()`。
+  - `Agent.run()`（chat 模式）：默认注入 `stream_print` 回调，以 `智序者 > ` 前缀 + `flush` 实时逐字输出。工具调用轮次期间的文本（如有）也会被流式输出。
+  - 任务模式（TaskRunner）：**不走流式**，保持 verbose 步骤输出，因为分步执行比逐 token 更有意义。
+- **向后兼容**：所有测试 SpyBrain/MockBrain 走基类 `think_stream()` → `think()` 回退，语义不变。`stream_callback=None` 时 react_loop 行为与 v1.0 完全一致。
+- **测试**：20/20 全绿

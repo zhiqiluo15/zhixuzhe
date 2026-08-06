@@ -1,7 +1,9 @@
 """DeepSeek API 大脑 —— 通过云端 API 调用思考"""
 
+import json
 import os
 import time
+from collections.abc import Generator
 from pathlib import Path
 
 import requests
@@ -106,3 +108,110 @@ class DeepSeekAPIBrain(Brain):
             role="assistant",
             content=f"[API 调用失败（重试 {config.model.max_retries} 次后）] {last_error}",
         )
+
+    def think_stream(
+        self,
+        messages: list[Message],
+        tools: list[dict] | None = None,
+    ) -> Generator[tuple[str, object], None, None]:
+        """SSE 流式思考：逐 token 产出文本块，实时显示。
+
+        DeepSeek API 的 SSE 格式：
+          data: {"choices":[{"delta":{"content":"Hello"},"index":0}]}
+          data: {"choices":[{"delta":{"tool_calls":[...]},"index":0}]}
+          data: [DONE]
+
+        - tool_calls 的 delta 跨多个 chunk 累积（id/name 在首个，arguments 后续追加）
+        - 我们产出 ("text", str) 给 UI 实时显示，"done" 时产出完整 Message
+        """
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        payload: dict = {
+            "model": self.model,
+            "messages": [m.to_dict() for m in messages],
+            "stream": True,
+        }
+        if tools:
+            payload["tools"] = tools
+
+        try:
+            resp = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=config.model.request_timeout,
+                stream=True,
+            )
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            logger.error(f"SSE 请求失败: {e}")
+            yield ("text", f"[流式请求失败] {e}")
+            yield ("done", Message(role="assistant", content=f"[流式请求失败] {e}"))
+            return
+
+        accumulated: dict[int, dict] = {}  # index → {"id", "function": {"name", "arguments"}}
+        full_content = ""
+
+        for line in resp.iter_lines(decode_unicode=True):
+            if not line:
+                continue
+            if not line.startswith("data: "):
+                continue
+            data_str = line[6:]  # 去掉 "data: " 前缀
+            if data_str == "[DONE]":
+                break
+
+            try:
+                data = json.loads(data_str)
+            except json.JSONDecodeError:
+                continue
+
+            choices = data.get("choices", [])
+            if not choices:
+                continue
+
+            delta = choices[0].get("delta", {})
+
+            # 文本块
+            content = delta.get("content", "")
+            if content:
+                full_content += content
+                yield ("text", content)
+
+            # 工具调用块（需跨 chunk 累积）
+            tc_list = delta.get("tool_calls")
+            if tc_list:
+                for tc in tc_list:
+                    idx = tc.get("index", 0)
+                    if idx not in accumulated:
+                        # 首个 chunk：携带 id 和 function name
+                        accumulated[idx] = {
+                            "id": tc.get("id", ""),
+                            "type": "function",
+                            "function": {
+                                "name": tc.get("function", {}).get("name", ""),
+                                "arguments": tc.get("function", {}).get("arguments", ""),
+                            },
+                        }
+                    else:
+                        # 后续 chunk：追加 arguments
+                        args_chunk = tc.get("function", {}).get("arguments", "")
+                        if args_chunk:
+                            accumulated[idx]["function"]["arguments"] += args_chunk
+
+        # 构建最终 Message
+        tool_calls = None
+        if accumulated:
+            tool_calls = [
+                accumulated[i] for i in sorted(accumulated)
+            ]
+
+        final_msg = Message(
+            role="assistant",
+            content=full_content,
+            tool_calls=tool_calls,
+        )
+        yield ("done", final_msg)

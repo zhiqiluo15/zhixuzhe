@@ -91,7 +91,7 @@ class Agent:
     # ── 核心循环 ──
 
     def run(self, user_input: str) -> str:
-        """单次交互：接收用户输入，返回响应"""
+        """单次交互：接收用户输入，返回响应（默认流式输出）。"""
         user_msg = Message(role="user", content=user_input)
 
         # 注入记忆上下文
@@ -106,10 +106,24 @@ class Agent:
 
         messages = [system_msg] + self.history + [user_msg]
 
+        # 流式输出：打印前缀，逐 chunk 输出，不换行
+        first = [True]  # 用列表实现闭包可变引用
+
+        def stream_print(chunk: str) -> None:
+            if first[0]:
+                print("\n智序者 > ", end="", flush=True)
+                first[0] = False
+            print(chunk, end="", flush=True)
+
         response = react_loop(
             self.brain, messages, self.tools,
             confirm_callback=self._hitl_confirm,
+            stream_callback=stream_print,
         )
+
+        # 流式输出后换行
+        if not first[0]:
+            print()
 
         # 记录
         self.history.append(user_msg)
@@ -172,6 +186,5 @@ class Agent:
                 print(f"\n═══ 最终结论 ═══\n\n{response}\n")
                 continue
 
-            # 普通对话
-            response = self.run(user_input)
-            print(f"\n智序者 > {response}\n")
+            # 普通对话（已在 run() 内流式输出，这里不重复打印）
+            self.run(user_input)
