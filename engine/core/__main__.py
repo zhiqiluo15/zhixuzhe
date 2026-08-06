@@ -27,6 +27,8 @@ def main() -> None:
 
     from engine.brain.deepseek_api import DeepSeekAPIBrain
     from engine.tools.registry import ToolRegistry, Tool
+    from engine.skills.registry import SkillRegistry
+    from engine.skills.hardware_check.skill import HardwareCheckSkill
     from engine.core.loop import Agent
     from engine.core.recorder import Recorder
     from engine.core.history import HistoryStore
@@ -54,6 +56,10 @@ def main() -> None:
         func=_capture_stdout(verify_gpu_main),
     ))
 
+    # ── 技能 ──
+    skills = SkillRegistry()
+    skills.register(HardwareCheckSkill())
+
     # ── 记忆 ──
     recorder = Recorder(root=project_root)
     history_store = HistoryStore(root=project_root)
@@ -62,6 +68,7 @@ def main() -> None:
     agent = Agent(
         brain=brain, tools=tools,
         recorder=recorder, history_store=history_store,
+        skill_registry=skills,
     )
     agent.interactive()
 

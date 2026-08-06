@@ -12,6 +12,8 @@ import re
 
 from engine.brain.base import Brain, Message
 from engine.tools.registry import ToolRegistry
+from engine.skills.registry import SkillRegistry
+from engine.core.router import Router
 from engine.core.recorder import Recorder
 from engine.core.react import react_loop
 
@@ -54,17 +56,34 @@ MAX_TOOL_ROUNDS = 5
 class TaskRunner:
     """自主任务执行器 —— 规划 → 执行 → 综合 → 记录"""
 
-    def __init__(self, brain: Brain, tools: ToolRegistry, recorder: Recorder):
+    def __init__(
+        self,
+        brain: Brain,
+        tools: ToolRegistry,
+        recorder: Recorder,
+        skill_registry: SkillRegistry | None = None,
+    ):
         self.brain = brain
         self.tools = tools
         self.recorder = recorder
+        self.router = Router(skill_registry) if skill_registry else None
 
     def run(self, goal: str, verbose: bool = True) -> str:
         """执行一个目标，返回最终结论"""
-        # 1. 规划
-        if verbose:
-            print("📋 规划中...", end=" ", flush=True)
-        plan = self._plan(goal)
+        # 1. 规划（优先技能匹配 → 回退 LLM 即兴规划）
+        plan_source = "llm"
+        skill = self.router.route(goal) if self.router else None
+
+        if skill:
+            if verbose:
+                print(f"🎯 匹配技能: {skill.name}（{skill.description}）")
+            plan = skill.plan(goal)
+            plan_source = f"skill:{skill.name}"
+        else:
+            if verbose:
+                print("📋 规划中...", end=" ", flush=True)
+            plan = self._plan(goal)
+
         if verbose:
             print(f"共 {len(plan)} 步")
             for i, s in enumerate(plan):
@@ -93,7 +112,7 @@ class TaskRunner:
             print("完成")
 
         # 4. 记录
-        self.recorder.record_task(goal, plan, step_results, final)
+        self.recorder.record_task(goal, plan, step_results, final, plan_source)
 
         return final
 

@@ -190,3 +190,24 @@
   - `Agent.reset` 时开新会话文件。
   - `__main__.py` 入口传入 `HistoryStore`，REPL 模式默认启用持久化。
 - **影响**：重启后保留对话上下文；reset 自动归档旧会话、开新会话；`history_store=None` 时行为完全兼容旧代码。
+
+### route + skill 架构落地（2026-08-06）
+- **动机**：TaskRunner 每次任务都靠 LLM 即兴分解步骤——灵活但不稳定，同类任务可能拆出不同步骤，且每次多花一次规划 API 调用。需要在"灵活即兴"与"稳定高效"之间搭建路由层。
+- **核心设计**：
+  - **Skill** = "罐装 TaskRunner 计划"：预先验证过的、可复用的任务步骤模板。每个 Skill 有 name/description/triggers（触发词）+ plan() 返回预设步骤。
+  - **Route** = 意图→技能匹配：Router 根据用户输入关键词匹配 SkillRegistry 中注册的技能，命中则跳过 LLM 规划阶段，直接用罐装计划执行；未命中回退到原有 LLM 即兴规划。
+  - **集成方式**：Router 嵌入 TaskRunner.run() 的规划阶段，不新建执行引擎、不推翻 TaskRunner 的四阶段流水线。Agent 和 TaskRunner 原有行为完全向后兼容。
+- **新文件**：
+  - `engine/skills/base.py` — `Skill` 抽象基类（name/description/triggers/plan）
+  - `engine/skills/registry.py` — `SkillRegistry`（注册 + 关键词匹配）
+  - `engine/core/router.py` — `Router`（封装 SkillRegistry 匹配逻辑）
+  - `engine/skills/hardware_check/skill.py` — 首个罐装技能：硬件检测 + QLoRA 判断
+- **改造文件**：
+  - `engine/skills/__init__.py` — 导出 `Skill` / `SkillRegistry`
+  - `engine/core/task.py` — TaskRunner 接受可选 `skill_registry`，`run()` 中优先 Router 匹配
+  - `engine/core/loop.py` — Agent 接受可选 `skill_registry` 并透传；REPL 新增 `skills` 命令
+  - `engine/core/recorder.py` — `record_task()` 新增 `plan_source` 参数记录规划来源
+  - `engine/core/__main__.py` — 入口创建 SkillRegistry 并注册 HardwareCheckSkill
+- **向后兼容**：`skill_registry=None`（默认）时行为与旧代码完全一致；TaskRunner / Agent 原有测试无改动且全部通过（16/16）。
+- **效果**：用户输入 `task 检测硬件并判断QLoRA条件` → Router 匹配 `hardware_check` → 跳过 LLM 规划，直接执行 3 步罐装计划 → 省 1 次 API 调用，步骤始终一致。
+- **层次关系**：Tool（原子动作）→ Skill（Tool + 预设推理的复合体）→ TaskRunner（Skill 编排 + LLM 即兴兜底）。三层各司其职，不互相替代。

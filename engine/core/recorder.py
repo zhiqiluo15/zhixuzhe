@@ -24,11 +24,13 @@ class Recorder:
         plan: list[str],
         step_results: list[str],
         final_answer: str,
+        plan_source: str = "llm",
     ) -> None:
         """记录一次自主任务执行"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         entry = f"## [任务] {timestamp}\n\n"
         entry += f"**目标**：{goal}\n\n"
+        entry += f"**规划来源**：{plan_source}\n"
         entry += f"**计划**（{len(plan)} 步）：\n"
         for i, s in enumerate(plan):
             status = "✅" if i < len(step_results) else "⏳"

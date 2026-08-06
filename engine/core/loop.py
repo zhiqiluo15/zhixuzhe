@@ -7,6 +7,7 @@
 
 from engine.brain.base import Brain, Message
 from engine.tools.registry import ToolRegistry
+from engine.skills.registry import SkillRegistry
 from engine.core.recorder import Recorder
 from engine.core.react import react_loop
 from engine.core.task import TaskRunner
@@ -25,6 +26,7 @@ MAX_TOOL_ROUNDS = 5
 def _show_help() -> None:
     print("命令：")
     print("  task <目标>   自主任务模式（规划→执行→综合）")
+    print("  skills        列出已注册技能")
     print("  reset         重置对话历史")
     print("  help          显示此帮助")
     print("  exit          退出")
@@ -40,14 +42,16 @@ class Agent:
         tools: ToolRegistry,
         recorder: Recorder,
         history_store: HistoryStore | None = None,
+        skill_registry: SkillRegistry | None = None,
     ):
         self.brain = brain
         self.tools = tools
         self.recorder = recorder
         self.history_store = history_store
+        self.skill_registry = skill_registry
         self.history: list[Message] = []
         self.system = Message(role="system", content=SYSTEM_PROMPT)
-        self.task_runner = TaskRunner(brain, tools, recorder)
+        self.task_runner = TaskRunner(brain, tools, recorder, skill_registry)
 
         # 尝试恢复上次会话
         if history_store:
@@ -104,6 +108,13 @@ class Agent:
                 continue
             if user_input.lower() == "help":
                 _show_help()
+                continue
+            if user_input.lower() == "skills":
+                if self.skill_registry and len(self.skill_registry) > 0:
+                    print(f"\n已注册技能（{len(self.skill_registry)} 个）：\n"
+                          f"{self.skill_registry.list_descriptions()}\n")
+                else:
+                    print("\n暂无注册技能。\n")
                 continue
 
             # 任务模式
