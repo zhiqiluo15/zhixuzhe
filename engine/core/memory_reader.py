@@ -15,18 +15,37 @@ from datetime import datetime
 from pathlib import Path
 
 
+# ── 停用词 ──
+
+# 常见中英文停用词（2-gram），这些词在几乎所有文本中出现，无区分度
+_STOP_WORDS: set[str] = {
+    # 中文高频 bigram
+    "什么", "怎么", "这个", "那个", "我们", "他们", "你们", "可以",
+    "没有", "知道", "因为", "所以", "但是", "如果", "已经", "还是",
+    "不是", "就是", "一个", "都是", "不是", "自己",
+    # 英文高频词
+    "the", "is", "are", "was", "were", "and", "for", "not",
+    "that", "this", "with", "have", "has", "from", "they",
+    "will", "would", "could", "should", "been", "being",
+}
+
+
 # ── 分词 ──
 
 def _tokenize(text: str) -> set[str]:
-    """混合中英文分词：中文用 2-gram，英文用单词（≥2字符）"""
+    """混合中英文分词：中文用 2-gram，英文用单词（≥2字符），过滤停用词"""
     tokens: set[str] = set()
     # 英文单词
     for m in re.finditer(r"[a-zA-Z]{2,}", text):
-        tokens.add(m.group().lower())
+        word = m.group().lower()
+        if word not in _STOP_WORDS and len(word) > 1:
+            tokens.add(word)
     # 中文 2-gram
     cn = re.sub(r"[^\u4e00-\u9fff]", "", text)
     for i in range(len(cn) - 1):
-        tokens.add(cn[i : i + 2])
+        bigram = cn[i : i + 2]
+        if bigram not in _STOP_WORDS:
+            tokens.add(bigram)
     return tokens
 
 
@@ -101,19 +120,25 @@ def _parse_experience_entries(content: str) -> list[dict]:
 # ── 评分与检索 ──
 
 def _score(query_terms: set[str], entry: dict) -> float:
-    """计算条目对查询的相关度分数（0~1）"""
-    text = entry["title"] + " " + entry["body"]
-    entry_terms = _tokenize(text)
+    """计算条目对查询的相关度分数（0~1）
+
+    使用 √n 归一化缓解长查询惩罚——查询越长，命中越难，单关键词命中仍有意义。
+    例：QLoRA 在 8 词查询中命中 1 次 → 1/√8 ≈ 0.35
+    """
     if not query_terms:
         return 0.0
+    text = entry["title"] + " " + entry["body"]
+    entry_terms = _tokenize(text)
     overlap = query_terms & entry_terms
-    return len(overlap) / len(query_terms)
+    if not overlap:
+        return 0.0
+    return len(overlap) / (len(query_terms) ** 0.5)
 
 
 class MemoryReader:
     """记忆读取器 —— 从 memory/diary/ 和 memory/experience/ 检索相关条目"""
 
-    MIN_SCORE = 0.2       # 最低相关度阈值（低于此值视为噪声）
+    MIN_SCORE = 0.25      # 最低相关度阈值（低于此值视为噪声）
     DEDUP_THRESHOLD = 0.7  # Jaccard 相似度超过此值视为重复
 
     def __init__(self, root: Path):
