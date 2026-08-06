@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>智序者 zhixuzhe v1</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 
@@ -103,6 +104,42 @@ header .actions button.active { background: rgba(167,139,250,0.18); border-color
   background: rgba(22,22,38,0.92);
   border: 1px solid rgba(167,139,250,0.08);
   border-bottom-left-radius: 5px;
+}
+
+/* ── Markdown 渲染样式 ── */
+.rendered-md table {
+  border-collapse: collapse; margin: 8px 0; font-size: 13px; width: 100%;
+}
+.rendered-md th, .rendered-md td {
+  border: 1px solid rgba(167,139,250,0.15); padding: 6px 10px; text-align: left;
+}
+.rendered-md th {
+  background: rgba(167,139,250,0.08); color: #c4b5fd; font-weight: 600;
+}
+.rendered-md td { color: #ccc; }
+.rendered-md strong { color: #e2e2e2; font-weight: 600; }
+.rendered-md em { color: #c4b5fd; }
+.rendered-md code {
+  background: rgba(167,139,250,0.1); color: #c4b5fd;
+  padding: 2px 6px; border-radius: 4px; font-size: 12px;
+  font-family: "Consolas", "Cascadia Code", monospace;
+}
+.rendered-md pre {
+  background: rgba(10,10,24,0.9); border: 1px solid rgba(167,139,250,0.12);
+  border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 8px 0;
+}
+.rendered-md pre code {
+  background: none; padding: 0; color: #d0d0d0; font-size: 12px;
+}
+.rendered-md h3 { font-size: 15px; color: #c4b5fd; margin: 10px 0 6px; font-weight: 600; }
+.rendered-md h4 { font-size: 14px; color: #b8acf6; margin: 8px 0 4px; font-weight: 600; }
+.rendered-md ul, .rendered-md ol { margin: 4px 0; padding-left: 20px; }
+.rendered-md li { margin: 2px 0; }
+.rendered-md a { color: #a78bfa; }
+.rendered-md hr { border: none; border-top: 1px solid rgba(167,139,250,0.1); margin: 10px 0; }
+.rendered-md blockquote {
+  border-left: 3px solid rgba(167,139,250,0.3); padding-left: 12px;
+  color: #999; margin: 6px 0;
 }
 
 /* 打字光标 */
@@ -244,7 +281,7 @@ footer .hint {
     <div class="avatar assistant-av">
       <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
     </div>
-    <div class="bubble assistant-bub">你好，我是智序者。有什么可以帮你？</div>
+    <div class="bubble assistant-bub" id="greeting-bubble">你好，我是智序者。有什么可以帮你？</div>
   </div>
 </div>
 
@@ -326,6 +363,19 @@ async function submitSetup() {
 
 // 页面加载时检查状态
 checkStatus();
+
+// 渲染初始问候语
+(function initGreeting() {
+  const gb = document.getElementById('greeting-bubble');
+  if (gb && typeof marked !== 'undefined') {
+    gb.innerHTML = `<div class="rendered-md">${renderMarkdown(gb.textContent)}</div>`;
+  } else if (gb) {
+    // marked.js 尚未加载，监听加载后渲染
+    document.querySelector('script[src*="marked"]').addEventListener('load', () => {
+      gb.innerHTML = `<div class="rendered-md">${renderMarkdown(gb.textContent)}</div>`;
+    });
+  }
+})();
 
 // ═══════════════════════════════════════
 //  星空背景（暗色调 + 低亮度）
@@ -412,6 +462,20 @@ function scrollBottom() {
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
+// ── Markdown 渲染 ──
+
+function renderMarkdown(text) {
+  if (typeof marked === 'undefined') return text;
+  return marked.parse(text, { breaks: true, gfm: true });
+}
+
+function finalizeBubble(bubble) {
+  if (!bubble || !bubble.textContent) return;
+  const raw = bubble.textContent;
+  bubble.setAttribute('data-raw', raw);
+  bubble.innerHTML = `<div class="rendered-md">${renderMarkdown(raw)}</div>`;
+}
+
 // 头像 SVG 内联
 const USER_AVATAR_SVG = '<svg viewBox="0 0 24 24"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v1.2c0 .66.54 1.2 1.2 1.2h16.8c.66 0 1.2-.54 1.2-1.2v-1.2c0-3.2-6.4-4.8-9.6-4.8z"/></svg>';
 const AI_AVATAR_SVG = '<svg viewBox="0 0 24 24"><path d="M12 2l2.4 7.2h7.6l-6 4.8 2.4 7.2-6.4-4.8-6.4 4.8 2.4-7.2-6-4.8h7.6z"/><path d="M12 2l2.4 7.2h7.6l-6 4.8 2.4 7.2-6.4-4.8-6.4 4.8 2.4-7.2-6-4.8h7.6z" fill="rgba(255,255,255,0.15)"/></svg>';
@@ -426,9 +490,13 @@ function addMessage(role, content, streaming=false) {
     const avatarClass = role === 'user' ? 'user-av' : 'assistant-av';
     const bubbleClass = role === 'user' ? 'user-bub' : 'assistant-bub';
     const avatarSvg = role === 'user' ? USER_AVATAR_SVG : AI_AVATAR_SVG;
+    const isAssistant = role === 'assistant';
+    const rendered = isAssistant && !streaming
+      ? `<div class="rendered-md">${renderMarkdown(content)}</div>`
+      : content;
     div.innerHTML = `
       <div class="avatar ${avatarClass}">${avatarSvg}</div>
-      <div class="bubble ${bubbleClass} ${streaming ? 'streaming' : ''}">${content}</div>
+      <div class="bubble ${bubbleClass} ${streaming ? 'streaming' : ''}">${rendered}</div>
     `;
   }
   chatEl.appendChild(div);
@@ -502,7 +570,10 @@ async function send() {
             scrollBottom();
 
           } else if (data.type === 'done') {
-            if (bubble) bubble.classList.remove('streaming');
+            if (bubble) {
+              bubble.classList.remove('streaming');
+              finalizeBubble(bubble);
+            }
             setHint('');
 
           } else if (data.type === 'task_start') {
