@@ -58,6 +58,7 @@ def init_logging(log_dir: str = "logs", level: str = "INFO",
         maxBytes=max_bytes,
         backupCount=backup_count,
         encoding="utf-8",
+        delay=True,  # 延迟打开文件，避免前次进程残留的文件锁导致 PermissionError
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter(fmt))

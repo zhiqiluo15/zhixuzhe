@@ -434,7 +434,13 @@
   - **端口自检+自动清理**：启动前 `netstat` 查 8080 占用 → `taskkill` 杀掉残留进程
   - **启动验证循环**：最长等 10 秒，每秒检查 8080 是否 LISTENING，起不来则报 ERROR 退出
   - **隐藏窗口**：`start "" /min` 最小化 python 窗口，不干扰用户
-- **验证**：cmd 936 代码页 + `Start-Process` 模拟双击 → 8080 成功监听（PID 8788），`/status` → 200。
+
+### 文件锁修复：RotatingFileHandler delay=True（2026-08-06）
+
+- **问题（第五轮）**：去中文后仍 PermissionError，`logs/agent.log` 写入被拒绝。
+- **根因**：前次启动的 python 进程被杀后，Windows 文件句柄释放有延迟。bat 里的 `del /f /q` 对这个窗口期的文件锁无能为力 → 新进程初始化 `RotatingFileHandler(mode='a')` 时立即 `_open()` 打不开 → PermissionError。不是文件权限问题，是**进程间文件锁竞争**。
+- **修复**：[engine/log.py](file:///t:/zhixuzhe/engine/log.py#L61) 中 `RotatingFileHandler` 添加 `delay=True`——延迟文件打开到第一次 `emit()`（写日志），此时旧进程的句柄已释放。这是 Python logging 处理此场景的标准做法。
+- **验证**：cmd 936 模拟双击 → 8080 监听（PID 22008），`/status` → 200，`agent.log` 正常创建（116 bytes）。
 
 ### 启动脚本闪退修复：LF 换行 → CRLF + GBK 编码（2026-08-06，三轮修正，已被上述终版取代）
 
