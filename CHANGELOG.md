@@ -425,17 +425,19 @@
 
 ---
 
-### 启动脚本闪退修复：LF 换行 → CRLF + 编码修正（2026-08-06）
+### 启动脚本闪退修复：LF 换行 → CRLF + GBK 编码（2026-08-06，三轮修正）
 
-- **问题（第一轮）**：双击 `run_web.bat` / `run.bat` 窗口一闪而过，无法启动服务；终端里 `python engine\web_server.py 8080` 却一切正常。
-- **根因（第一轮）**：两个 .bat 文件是 **LF（`0A`）换行**，非 Windows 批处理标准 CRLF（`0D 0A`）。cmd 解析 LF-only 批处理时多行复合逻辑（`if` 块、`set /p`、`timeout`、`start`）跳行错乱，脚本提前退出 → 窗口闪退。终端直跑绕过 .bat，所以一直"看着正常"。
-- **问题（第二轮）**：修好换行后，双击不再闪退，但浏览器打开后**网站拒绝连接**——python 服务根本没起来。
-- **根因（第二轮）**：系统代码页是 **65001（UTF-8）** 而非默认的 936（GBK）。第一轮误将 .bat 转成 GBK 编码 → cmd 按 UTF-8 解码 GBK 字节 → `start "智序者 Web" python ...` 中文标题乱码 → 命令解析失败 → python 从未启动 → 8080 无监听 → 拒绝连接。
-- **修复**：.bat 统一为 **UTF-8 无 BOM + CRLF**（与系统代码页 65001 匹配）。通过 `Start-Process` 调 .bat 模拟双击实测：8080 正常监听，`/status` 返回 200。
-- **教训**：
-  - Windows 批处理标准配置 = **CRLF + 无 BOM**，但**编码必须匹配系统代码页**（`chcp` 查看，本例为 65001/UTF-8，不是想当然的 GBK）。编码不符不会闪退，而是中文标题乱码导致命令静默失败——比闪退更隐蔽。
-  - 验证脚本启动必须模拟"双击"路径（cmd + 系统级 PATH + 代码页），终端直跑不能代表 .bat 健康。
-  - 清理测试进程时注意：kill cmd 不会带走其子进程（python），需按端口反查 PID 单独清理。
+- **问题（第一轮）**：双击 `run_web.bat` / `run.bat` 窗口一闪而过；终端直跑 `python engine\web_server.py 8080` 却一切正常。
+- **根因（第一轮）**：.bat 是 **LF（`0A`）换行**，非 Windows 批处理标准 CRLF。cmd 解析 LF-only 批处理时多行复合逻辑（`if` 块、`set /p`、`timeout`、`start`）跳行错乱 → 窗口闪退。
+- **问题（第二轮）**：修好换行后不再闪退，但浏览器打开报"拒绝连接"（ERR_CONNECTION_REFUSED）——python 服务根本没被拉起。
+- **根因（第二轮，判断失误）**：误信 PowerShell 终端 `chcp` 显示的 65001（UTF-8），把 .bat 转成 UTF-8 编码。但**双击 .bat 走的是 cmd，其代码页由注册表 ACP/OEMCP 决定，本机为 936（GBK）**。PowerShell 7 终端代码页 ≠ cmd 代码页。UTF-8 编码的 .bat 被 cmd 按 GBK 解码 → `start "智序者 Web" python ...` 中文标题乱码 → 命令解析失败 → python 从未启动。
+- **根因（最终确认）**：注册表 `HKLM\SYSTEM\CurrentControlSet\Control\Nls\CodePage` → **ACP=936, OEMCP=936**（GBK）。双击场景 cmd 用 GBK。
+- **修复**：.bat 统一为 **GBK（cp936）+ CRLF + 无 BOM**。验证方式：用 GBK 编码写测试 bat 以 cmd 936 代码页环境启动 → 8080 被 python 监听 → 服务正常。
+- **教训（重要）**：
+  - **判代码页要看注册表（ACP/OEMCP），不是看 PowerShell 终端 chcp**。PowerShell 7 默认 UTF-8，cmd 默认由系统区域设置决定。
+  - 本机规范：Windows 批处理 = **GBK + CRLF + 无 BOM**；UTF-8 会乱码并静默破坏 `start` 带中文标题的命令。
+  - 中文出现在 `start "标题"` / `title` 中时对编码尤其敏感，乱码不只是难看，会直接让命令执行失败。
+  - 验证脚本启动必须模拟 cmd 936 环境，终端直跑不能代表 .bat 健康。
 
 ---
 
