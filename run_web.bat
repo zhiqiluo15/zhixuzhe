@@ -31,6 +31,10 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr :8080 ^| findstr LISTENING') 
     taskkill /f /pid %%a > nul 2>&1
 )
 
+REM Clean up old log files (may be locked by previous runs)
+echo   Cleaning old logs...
+del /f /q "%~dp0logs\agent.log*" > nul 2>&1
+
 REM Verify Python
 echo   Checking Python...
 python --version > "%TEMP%\zhixu_server.log" 2>&1
