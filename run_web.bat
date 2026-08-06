@@ -1,41 +1,41 @@
 @echo off
 setlocal enabledelayedexpansion
-title ÖÇÐòÕß Web UI
+title æ™ºåºè€… Web UI
 cd /d "%~dp0"
 
-echo ¨X¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨[
-echo ¨U       ÖÇÐòÕß zhixuzhe v1 - Web     ¨U
-echo ¨^¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨a
+echo â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+echo â•‘       æ™ºåºè€… zhixuzhe v1 - Web     â•‘
+echo â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 echo.
 
-REM ¼ì²é .env
+REM æ£€æŸ¥ .env
 if not exist ".env" (
-    echo   Ê×´ÎÔËÐÐ£¬ÐèÒªÉèÖÃ DeepSeek API Key.
-    echo   »ñÈ¡ Key: https://platform.deepseek.com/api_keys
+    echo   é¦–æ¬¡è¿è¡Œï¼Œéœ€è¦è®¾ç½® DeepSeek API Key.
+    echo   èŽ·å– Key: https://platform.deepseek.com/api_keys
     echo.
-    set /p KEY="  ÇëÊäÈë DEEPSEEK_API_KEY: "
+    set /p KEY="  è¯·è¾“å…¥ DEEPSEEK_API_KEY: "
     if "!KEY!"=="" (
-        echo   ´íÎó: Î´ÊäÈë Key£¬ÍË³ö.
+        echo   é”™è¯¯: æœªè¾“å…¥ Keyï¼Œé€€å‡º.
         pause
         exit /b 1
     )
     echo DEEPSEEK_API_KEY=!KEY!> .env
-    echo   ÒÑ±£´æµ½ .env
+    echo   å·²ä¿å­˜åˆ° .env
     echo.
 )
 
-echo   Æô¶¯ÖÐ... ÉÔºó»á×Ô¶¯´ò¿ªä¯ÀÀÆ÷
-echo   Èç¹ûÎ´´ò¿ª£¬Çë·ÃÎÊ http://localhost:8080
+echo   å¯åŠ¨ä¸­... ç¨åŽä¼šè‡ªåŠ¨æ‰“å¼€æµè§ˆå™¨
+echo   å¦‚æžœæœªæ‰“å¼€ï¼Œè¯·è®¿é—® http://localhost:8080
 echo.
 
-REM Æô¶¯ Web Server£¨ºóÌ¨²»×èÈû£©+ ÑÓÊ±ºó´ò¿ªä¯ÀÀÆ÷
-start "ÖÇÐòÕß Web" python engine\web_server.py 8080
+REM å¯åŠ¨ Web Serverï¼ˆåŽå°ä¸é˜»å¡žï¼‰+ å»¶æ—¶åŽæ‰“å¼€æµè§ˆå™¨
+start "æ™ºåºè€… Web" python engine\web_server.py 8080
 
-REM µÈ 2 ÃëÈÃ·þÎñÆô¶¯
+REM ç­‰ 2 ç§’è®©æœåŠ¡å¯åŠ¨
 timeout /t 2 /nobreak > nul
 
 start "" http://localhost:8080
 
 echo.
-echo   ·þÎñÔËÐÐÖÐ¡£¹Ø±Õ´Ë´°¿Ú½«Í£Ö¹·þÎñ¡£
+echo   æœåŠ¡è¿è¡Œä¸­ã€‚å…³é—­æ­¤çª—å£å°†åœæ­¢æœåŠ¡ã€‚
 pause
