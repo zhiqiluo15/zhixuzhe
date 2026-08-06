@@ -195,7 +195,7 @@ def test_react_loop_multi_tool():
     print("  ✅ 通过：两轮工具调用→最终回答，think 调用 3 次")
 
 
-def test_agent_normal_mode():
+def test_agent_normal_mode(tmp_path):
     """Agent 普通对话模式"""
     print("\n" + "=" * 50)
     print("测试 4: Agent 普通对话")
@@ -203,7 +203,7 @@ def test_agent_normal_mode():
         Message(role="assistant", content="我叫智序者，有什么可以帮你的？"),
     ])
     tools = build_tools()
-    recorder = Recorder(root=PROJECT_ROOT)
+    recorder = Recorder(root=tmp_path)
     agent = Agent(brain=brain, tools=tools, recorder=recorder)
 
     response = agent.run("你是谁？")
@@ -213,7 +213,7 @@ def test_agent_normal_mode():
     print("  ✅ 通过：普通对话正常，历史记录正确")
 
 
-def test_agent_tool_mode():
+def test_agent_tool_mode(tmp_path):
     """Agent 带工具调用"""
     print("\n" + "=" * 50)
     print("测试 5: Agent 对话中触发工具调用")
@@ -228,7 +228,7 @@ def test_agent_tool_mode():
         Message(role="assistant", content="10 + 20 = 30"),
     ])
     tools = build_tools()
-    recorder = Recorder(root=PROJECT_ROOT)
+    recorder = Recorder(root=tmp_path)
     agent = Agent(brain=brain, tools=tools, recorder=recorder)
 
     response = agent.run("10加20等于几？")
@@ -237,7 +237,7 @@ def test_agent_tool_mode():
     print("  ✅ 通过：Agent 工具调用正常")
 
 
-def test_task_runner():
+def test_task_runner(tmp_path):
     """TaskRunner 自主任务模式"""
     print("\n" + "=" * 50)
     print("测试 6: TaskRunner 自主任务（规划→执行→综合）")
@@ -269,7 +269,7 @@ def test_task_runner():
         Message(role="assistant", content="综合结论：3+5=8，北京晴25°C，任务完成。"),
     ])
     tools = build_tools()
-    recorder = Recorder(root=PROJECT_ROOT)
+    recorder = Recorder(root=tmp_path)
 
     runner = TaskRunner(brain=brain, tools=tools, recorder=recorder)
     result = runner.run("计算并查天气", verbose=False)
@@ -279,7 +279,7 @@ def test_task_runner():
     print("  ✅ 通过：TaskRunner 规划→执行→综合全链路正常")
 
 
-def test_task_runner_plan_fallback():
+def test_task_runner_plan_fallback(tmp_path):
     """TaskRunner 规划解析失败兜底"""
     print("\n" + "=" * 50)
     print("测试 7: TaskRunner 规划解析失败 → 兜底单步")
@@ -297,7 +297,7 @@ def test_task_runner_plan_fallback():
         Message(role="assistant", content="兜底结论：无法自动分解任务。"),
     ])
     tools = build_tools()
-    recorder = Recorder(root=PROJECT_ROOT)
+    recorder = Recorder(root=tmp_path)
 
     runner = TaskRunner(brain=brain, tools=tools, recorder=recorder)
     result = runner.run("一个无法自动分解的复杂目标", verbose=False)
@@ -311,22 +311,11 @@ def test_task_runner_plan_fallback():
 # HistoryStore 测试
 # ═══════════════════════════════════════════
 
-import shutil as _shutil
-_conv_dir = PROJECT_ROOT / "memory" / "conversations"
-
-
-def _clean_conversations():
-    """清理会话文件确保测试隔离"""
-    if _conv_dir.exists():
-        _shutil.rmtree(_conv_dir)
-
-
-def test_history_save_load():
+def test_history_save_load(tmp_path):
     """HistoryStore 基本存取"""
-    _clean_conversations()
     print("\n" + "=" * 50)
     print("测试 8: HistoryStore 保存和加载")
-    store = HistoryStore(root=PROJECT_ROOT)
+    store = HistoryStore(root=tmp_path)
     store.new_session()
 
     msgs = [
@@ -344,12 +333,11 @@ def test_history_save_load():
     print("  ✅ 通过：保存 2 条消息，加载后内容一致")
 
 
-def test_history_tool_calls_roundtrip():
+def test_history_tool_calls_roundtrip(tmp_path):
     """HistoryStore 工具调用消息序列化"""
-    _clean_conversations()
     print("\n" + "=" * 50)
     print("测试 9: HistoryStore 工具调用消息往返")
-    store = HistoryStore(root=PROJECT_ROOT)
+    store = HistoryStore(root=tmp_path)
     store.new_session()
 
     msgs = [
@@ -375,19 +363,18 @@ def test_history_tool_calls_roundtrip():
     print("  ✅ 通过：tool_calls 和 tool_call_id 序列化/反序列化正确")
 
 
-def test_agent_with_history_store():
+def test_agent_with_history_store(tmp_path):
     """Agent 带 HistoryStore，交互后持久化"""
-    _clean_conversations()
     print("\n" + "=" * 50)
     print("测试 10: Agent 带 HistoryStore 持久化")
-    store = HistoryStore(root=PROJECT_ROOT)
+    store = HistoryStore(root=tmp_path)
     store.new_session()
 
     brain = MockBrain([
         Message(role="assistant", content="我叫智序者。"),
     ])
     tools = build_tools()
-    recorder = Recorder(root=PROJECT_ROOT)
+    recorder = Recorder(root=tmp_path)
 
     agent = Agent(brain=brain, tools=tools, recorder=recorder, history_store=store)
     assert len(agent.history) == 0
@@ -404,12 +391,11 @@ def test_agent_with_history_store():
     print("  ✅ 通过：Agent 交互后历史正确写入磁盘")
 
 
-def test_agent_history_restore():
+def test_agent_history_restore(tmp_path):
     """Agent 从 HistoryStore 恢复历史"""
-    _clean_conversations()
     print("\n" + "=" * 50)
     print("测试 11: Agent 恢复上次会话")
-    store = HistoryStore(root=PROJECT_ROOT)
+    store = HistoryStore(root=tmp_path)
     store.new_session()
 
     # 模拟上次会话留下 2 条消息
@@ -421,7 +407,7 @@ def test_agent_history_restore():
     # 新建 Agent 应自动恢复
     brain = MockBrain([])
     tools = build_tools()
-    recorder = Recorder(root=PROJECT_ROOT)
+    recorder = Recorder(root=tmp_path)
 
     agent = Agent(brain=brain, tools=tools, recorder=recorder, history_store=store)
     assert len(agent.history) == 2
@@ -434,12 +420,11 @@ def test_agent_history_restore():
 # HistoryStore 边界测试
 # ═══════════════════════════════════════════
 
-def test_history_load_empty_file():
+def test_history_load_empty_file(tmp_path):
     """加载空文件应返回空列表"""
-    _clean_conversations()
     print("\n" + "=" * 50)
     print("测试 12: HistoryStore 加载空文件")
-    store = HistoryStore(root=PROJECT_ROOT)
+    store = HistoryStore(root=tmp_path)
     store.new_session()
     # 空文件（new_session 创建的 touch 文件）
 
@@ -448,12 +433,11 @@ def test_history_load_empty_file():
     print("  ✅ 通过：空文件返回 []，不崩溃")
 
 
-def test_history_load_corrupted_line():
+def test_history_load_corrupted_line(tmp_path):
     """损坏的 JSON 行被跳过，正常行不受影响"""
-    _clean_conversations()
     print("\n" + "=" * 50)
     print("测试 13: HistoryStore 损坏行容错")
-    store = HistoryStore(root=PROJECT_ROOT)
+    store = HistoryStore(root=tmp_path)
     store.new_session()
 
     # 保存 1 条正常消息
@@ -471,14 +455,13 @@ def test_history_load_corrupted_line():
     print("  ✅ 通过：损坏行被跳过，正常行保留")
 
 
-def test_history_latest_session_picks_newest():
+def test_history_latest_session_picks_newest(tmp_path):
     """多次会话时 latest_session 返回最新的"""
-    _clean_conversations()
     print("\n" + "=" * 50)
     print("测试 14: HistoryStore 选最新会话")
     import time as _time
 
-    store = HistoryStore(root=PROJECT_ROOT)
+    store = HistoryStore(root=tmp_path)
 
     # 创建两个会话文件
     s1 = store.new_session()
@@ -490,30 +473,28 @@ def test_history_latest_session_picks_newest():
     print("  ✅ 通过：两个会话文件中正确选出最新的")
 
 
-def test_history_no_prior_session():
+def test_history_no_prior_session(tmp_path):
     """无历史时 latest_session 返回 None"""
-    _clean_conversations()
     print("\n" + "=" * 50)
     print("测试 15: HistoryStore 无历史会话")
-    store = HistoryStore(root=PROJECT_ROOT)
+    store = HistoryStore(root=tmp_path)
     # 不调用 new_session，直接查
     latest = store.latest_session()
     assert latest is None
     print("  ✅ 通过：无会话文件时 latest_session 返回 None")
 
 
-def test_history_reset_creates_new_file():
+def test_history_reset_creates_new_file(tmp_path):
     """reset 后生成新会话文件，与旧文件不同"""
-    _clean_conversations()
     print("\n" + "=" * 50)
     print("测试 16: HistoryStore reset 新文件")
-    store = HistoryStore(root=PROJECT_ROOT)
+    store = HistoryStore(root=tmp_path)
 
     brain = MockBrain([
         Message(role="assistant", content="第一条回复"),
     ])
     tools = build_tools()
-    recorder = Recorder(root=PROJECT_ROOT)
+    recorder = Recorder(root=tmp_path)
 
     agent = Agent(brain=brain, tools=tools, recorder=recorder, history_store=store)
     old_session = store._current

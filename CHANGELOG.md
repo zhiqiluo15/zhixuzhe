@@ -422,3 +422,25 @@
 - **问题**：多处直接访问 `_tools`、`_skills`、`_current` 等下划线私有属性
 - **修复**：`ToolRegistry` 新增 `__len__`/`names()`/`__contains__`/`__iter__`；`SkillRegistry` 新增 `names()`/`list_all()`；`HistoryStore` 新增 `current_session_name` 属性 + `set_current_session()`；`Agent` 新增 `tool_count`/`skill_count` 属性；所有调用方替换为公共 API
 - **影响**：封装性提升，外部代码不再依赖内部实现细节
+
+---
+
+### 体检修复：测试隔离 + memory 污染清理（2026-08-06）
+
+- **动机**：全面体检发现 P0 级数据完整性 bug——`test_react.py` 的 HistoryStore / Agent / TaskRunner 测试直接用 `PROJECT_ROOT/memory/` 作为操作目录，违反"灵魂层物理隔离"原则，造成三重损害：
+  1. `test_history_*` 的 `_clean_conversations()` 执行 `rmtree` 删除整个生产 conversations 目录，**已致用户真实 10 条对话历史丢失**（`20260806_165645_110159.jsonl`）
+  2. `Recorder(root=PROJECT_ROOT)` 把测试交互（MockBrain 预设的 "你是谁？"/"10加20等于几？" 等）写入生产 diary，污染两个日记文件共 183 条假条目
+  3. `test_history_reset_creates_new_file` 结尾无清理，残留 2 个测试 jsonl 文件，时间戳最新 → 下次启动 `latest_session()` 会恢复到 0 字节空会话
+- **根因**：测试用 `PROJECT_ROOT` 接触灵魂层，[conftest.py](engine/tests/conftest.py) 的 `root` fixture 已示范了正确的临时目录做法，但 `test_react.py` 未遵循。
+- **修复**：
+  - `test_react.py`：9 个 HistoryStore 测试 + 4 个 Agent/TaskRunner 测试改用 pytest `tmp_path` fixture，所有 `root=PROJECT_ROOT` → `root=tmp_path`（共 15 处）
+  - 删除 `_clean_conversations()` 函数及其 9 处调用（不再需要，`tmp_path` 自动隔离）
+  - 清理生产 memory 中的测试污染残留：
+    - 删除 `memory/conversations/` 下 2 个测试残留 jsonl
+    - 清理 `memory/diary/20260805.md`（删除 51 条测试条目，保留 11 条真实记录：手写私人经历 + 真实交互 + 硬件评估报告）
+    - 清理 `memory/diary/20260806.md`（删除 132 条测试条目，保留 5 条真实 DeepSeek 对话）
+    - 删除 `memory/experience/20260806.md`（4 条全为测试数据）
+- **清理原则**：按 MockBrain 预设内容与 conftest 预填数据精确字符串匹配删除，真实 DeepSeek 回复（如 "我是智序者，一个基于 DeepSeek 的智能助手"）不含这些精确字符串，未被误伤。
+- **验证**：测试 20/20 全绿；`memory/conversations/` 清空；生产 diary 只含真实记录；`import` 链健康。
+- **教训**：测试必须用临时目录（`tmp_path`）隔离，灵魂层数据对测试是只读黑盒。已丢失的 conversations JSONL 对话内容可从 diary 找回（Recorder 独立备份）。
+- **未修复项**：git 历史 commit 信息全是 "ok"（无法重写历史），建议后续 commit 遵循 `feat/fix/refactor: 描述` 规范。
