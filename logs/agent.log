@@ -9,3 +9,11 @@
 2026-08-06 17:04:50,189 [INFO] zhixuzhe.core.loop: 已恢复会话: 20260806_165645_110159.jsonl（0 条消息）
 2026-08-06 17:10:03,600 [INFO] zhixuzhe.core.loop: 已恢复会话: 20260806_165645_110159.jsonl（6 条消息）
 2026-08-06 17:13:48,423 [INFO] zhixuzhe.core.loop: 已恢复会话: 20260806_165645_110159.jsonl（10 条消息）
+2026-08-06 18:26:52,190 [INFO] zhixuzhe.core.loop: 无历史会话，新建: 20260806_182652_189909.jsonl
+2026-08-06 22:50:23,476 [INFO] zhixuzhe.__main__: 智序者 v1 启动中...
+2026-08-06 22:50:37,940 [INFO] zhixuzhe.core.loop: 已恢复会话: 20260806_182652_189909.jsonl（12 条消息）
+2026-08-06 22:50:37,940 [INFO] zhixuzhe.__main__: 已注册 6 个工具: detect_host, verify_gpu, run_shell, read_file, write_file, web_fetch
+2026-08-06 22:50:37,940 [INFO] zhixuzhe.__main__: 已注册 1 个技能
+2026-08-06 22:50:37,941 [INFO] zhixuzhe.__main__: 智序者 v1 就绪，进入交互模式
+2026-08-06 22:50:37,941 [INFO] zhixuzhe.core.loop: 用户退出
+2026-08-06 22:51:00,002 [INFO] zhixuzhe.core.loop: 已恢复会话: 20260806_182652_189909.jsonl（12 条消息）

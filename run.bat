@@ -1,26 +1,26 @@
 @echo off
 setlocal enabledelayedexpansion
-title æ™ºåºè€… zhixuzhe v1
+title ÖÇÐòÕß zhixuzhe v1
 cd /d "%~dp0"
 
-echo â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
-echo â•‘          æ™ºåºè€… zhixuzhe v1         â•‘
-echo â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+echo ¨X¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨[
+echo ¨U          ÖÇÐòÕß zhixuzhe v1         ¨U
+echo ¨^¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨a
 echo.
 
-REM æ£€æŸ¥ .env
+REM ¼ì²é .env
 if not exist ".env" (
-    echo   é¦–æ¬¡è¿è¡Œï¼Œéœ€è¦è®¾ç½® DeepSeek API Key.
-    echo   èŽ·å– Key: https://platform.deepseek.com/api_keys
+    echo   Ê×´ÎÔËÐÐ£¬ÐèÒªÉèÖÃ DeepSeek API Key.
+    echo   »ñÈ¡ Key: https://platform.deepseek.com/api_keys
     echo.
-    set /p KEY="  è¯·è¾“å…¥ DEEPSEEK_API_KEY: "
+    set /p KEY="  ÇëÊäÈë DEEPSEEK_API_KEY: "
     if "!KEY!"=="" (
-        echo   é”™è¯¯: æœªè¾“å…¥ Keyï¼Œé€€å‡º.
+        echo   ´íÎó: Î´ÊäÈë Key£¬ÍË³ö.
         pause
         exit /b 1
     )
     echo DEEPSEEK_API_KEY=!KEY!> .env
-    echo   å·²ä¿å­˜åˆ° .env
+    echo   ÒÑ±£´æµ½ .env
     echo.
 )
 

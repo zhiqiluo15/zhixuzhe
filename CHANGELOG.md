@@ -425,6 +425,21 @@
 
 ---
 
+### 启动脚本闪退修复：LF 换行 → CRLF + GBK 编码（2026-08-06）
+
+- **问题**：双击 `run_web.bat` / `run.bat` 窗口一闪而过，无法启动服务；终端里 `python engine\web_server.py 8080` 却一切正常。
+- **根因**：两个 .bat 文件是 **LF（`0A`）换行**，非 Windows 批处理标准 CRLF（`0D 0A`）。cmd 解析 LF-only 批处理时多行复合逻辑（`if` 块、`set /p`、`timeout`、`start`）跳行错乱，脚本提前退出 → 窗口闪退。终端直跑绕过 .bat，所以一直"看着正常"。
+- **修复**：
+  - 换行全部转 CRLF（28/28 行验证通过）
+  - 编码从 UTF-8 转 **GBK（cp936）**——cmd 默认代码页，避免中文标题/提示乱码
+  - 过程中踩坑：先用 ASCII 写回导致中文全变 `?`，后按原始内容重写 run.bat 恢复
+- **教训**：
+  - Windows 批处理必须是 **CRLF + 无 BOM + GBK/ANSI**，UTF-8 无 BOM 的 LF 文件是"看起来能读、双击就崩"的隐形炸弹
+  - 代码编辑器保存 .bat 时要注意换行符设置（Git 的 autocrlf 或 .gitattributes 可兜底）
+  - 验证脚本启动必须模拟"双击"路径（cmd + 系统级 PATH），终端直跑不能代表 .bat 健康
+
+---
+
 ### 体检修复：测试隔离 + memory 污染清理（2026-08-06）
 
 - **动机**：全面体检发现 P0 级数据完整性 bug——`test_react.py` 的 HistoryStore / Agent / TaskRunner 测试直接用 `PROJECT_ROOT/memory/` 作为操作目录，违反"灵魂层物理隔离"原则，造成三重损害：
