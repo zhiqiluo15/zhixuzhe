@@ -43,6 +43,14 @@ class DeepSeekAPIBrain(Brain):
                 "  3. 代码传参：DeepSeekAPIBrain(api_key='你的key')\n"
                 "获取 Key：https://platform.deepseek.com/api_keys"
             )
+        # 拦截常见占位符值，避免发出注定 401 的请求后才报错
+        _placeholder_markers = ("FAKE", "TEST", "PLACEHOLDER", "YOUR_KEY", "你的key", "你的key")
+        if any(marker in self.api_key.upper() for marker in _placeholder_markers):
+            raise ValueError(
+                f"DEEPSEEK_API_KEY 当前为占位符值（{self.api_key[:8]}...），不是有效 Key。\n"
+                "请在 .env 文件中替换为真实的 DeepSeek API Key。\n"
+                "获取 Key：https://platform.deepseek.com/api_keys"
+            )
         self.model = model or config.model.model
         self.base_url = (base_url or config.model.base_url).rstrip("/")
 
