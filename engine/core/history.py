@@ -50,17 +50,32 @@ class HistoryStore:
         return self._current
 
     def latest_session(self) -> Path | None:
-        """获取最近一次会话文件路径，没有则返回 None"""
-        files = sorted(self.dir.glob("*.jsonl"))
+        """获取最近一次会话文件路径，没有则返回 None。
+
+        过滤掉 0 字节空文件——reset 或异常退出可能残留空会话文件，
+        时间戳最新会误导 latest_session 选中它，导致启动恢复到空历史。
+        """
+        files = sorted(
+            f for f in self.dir.glob("*.jsonl") if f.stat().st_size > 0
+        )
         return files[-1] if files else None
 
     def save(self, messages: list[Message]) -> None:
-        """保存当前完整历史到会话文件"""
+        """保存当前完整历史到会话文件（原子写入）。
+
+        空消息列表时跳过写入，避免创建 0 字节空文件污染 latest_session。
+        写入采用临时文件 + rename，防止进程崩溃在写一半损坏会话文件。
+        """
         if self._current is None:
             self.new_session()
-        with open(self._current, "w", encoding="utf-8") as f:
+        # 空历史不写入，避免残留空文件
+        if not messages:
+            return
+        tmp = self._current.with_suffix(self._current.suffix + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
             for msg in messages:
                 f.write(json.dumps(msg.to_dict(), ensure_ascii=False) + "\n")
+        tmp.replace(self._current)  # 原子 rename（同卷）
 
     def load(self, filepath: Path) -> list[Message]:
         """从 JSONL 文件加载消息列表，跳过损坏行"""

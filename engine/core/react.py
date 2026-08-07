@@ -103,6 +103,20 @@ def react_loop(
         # 下一轮思考（工具结果已加入 messages）
         response = _get_response(brain, messages, tool_specs, stream_callback)
 
+    # 轮次耗尽但 Brain 仍想调工具：清空 tool_calls 并标注，
+    # 避免半成品 tool_calls 被存入 history 造成后续上下文混乱。
+    if response.tool_calls:
+        logger.warning(
+            f"达到最大工具调用轮次 {max_rounds}，剩余 tool_calls 被丢弃"
+        )
+        response = Message(
+            role="assistant",
+            content=(response.content or "") + (
+                "\n\n[已达到最大工具调用轮次，部分工具调用未执行]"
+            ),
+            tool_calls=None,
+        )
+
     # 流式模式下，最终 response 已在流式过程中逐块输出过，
     # 这里不再重复输出，由调用方决定如何处理。
     return response

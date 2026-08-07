@@ -9,6 +9,7 @@ API:
   GET  /skills     → 技能列表 JSON
   POST /chat       → SSE 流式聊天
   POST /task       → SSE 流式任务
+  POST /chain      → SSE 流式技能链（{goal, skills: [...]}）
   POST /confirm     → HITL 确认响应
   POST /reset      → 重置对话
 """
@@ -203,6 +204,9 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
         elif self.path == "/task":
             if self._check_agent():
                 self._handle_task()
+        elif self.path == "/chain":
+            if self._check_agent():
+                self._handle_chain()
         elif self.path == "/confirm":
             self._handle_confirm()
         elif self.path == "/reset":
@@ -400,6 +404,62 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             )
 
             sse_write("task_done", {"content": response})
+        except Exception as e:
+            sse_write("error", {"content": str(e)})
+
+    # ── 技能链模式 ──
+
+    def _handle_chain(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+            goal = body.get("goal", "").strip()
+            skills = body.get("skills", [])
+        except (ValueError, json.JSONDecodeError):
+            self._error(400, "无效请求体")
+            return
+
+        if not goal or not skills or not isinstance(skills, list):
+            self._error(400, "goal 和 skills 不能为空")
+            return
+
+        self.send_response(200)
+        self._cors()
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+
+        agent = get_agent()
+
+        def sse_write(event_type: str, data: dict) -> None:
+            payload = json.dumps({"type": event_type, **data}, ensure_ascii=False)
+            try:
+                self.wfile.write(f"data: {payload}\n\n".encode())
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+        try:
+            sse_write("chain_start", {"goal": goal, "skills": skills})
+
+            def verbose_callback(msg: str) -> None:
+                sse_write("chain_step", {"content": msg})
+
+            confirm_callback = _make_web_confirm_callback(sse_write)
+
+            from engine.core.orchestrator import SkillChain
+            chain = SkillChain(
+                agent.brain, agent.tools, agent.recorder,
+                agent.skill_registry, agent.memory_manager,
+            )
+            response = chain.run(
+                goal, skills,
+                verbose=True,
+                verbose_callback=verbose_callback,
+                confirm_callback=confirm_callback,
+            )
+
+            sse_write("chain_done", {"content": response})
         except Exception as e:
             sse_write("error", {"content": str(e)})
 

@@ -148,13 +148,16 @@ class DeepSeekAPIBrain(Brain):
 
         last_error = ""
         resp = None
+        # timeout 用元组 (connect, read)：read timeout 防止流式过程中
+        # 服务器静默不发包导致 iter_lines 无限阻塞
+        stream_timeout = (config.model.request_timeout, config.model.request_timeout)
         for attempt in range(config.model.max_retries):
             try:
                 resp = requests.post(
                     f"{self.base_url}/chat/completions",
                     headers=headers,
                     json=payload,
-                    timeout=config.model.request_timeout,
+                    timeout=stream_timeout,
                     stream=True,
                 )
 
@@ -185,52 +188,66 @@ class DeepSeekAPIBrain(Brain):
         accumulated: dict[int, dict] = {}  # index → {"id", "function": {"name", "arguments"}}
         full_content = ""
 
-        for line in resp.iter_lines(decode_unicode=True):
-            if not line:
-                continue
-            if not line.startswith("data:"):
-                continue
-            data_str = line[5:].strip()  # 去掉 "data:" 前缀，兼容有无空格
-            if data_str == "[DONE]":
-                break
+        # 流式迭代阶段：连接中断时若已有累积内容，返回部分结果而非抛异常。
+        # 不重试流式迭代——已向用户输出过的文本重发会造成重复显示。
+        try:
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                if not line.startswith("data:"):
+                    continue
+                data_str = line[5:].strip()  # 去掉 "data:" 前缀，兼容有无空格
+                if data_str == "[DONE]":
+                    break
 
-            try:
-                data = json.loads(data_str)
-            except json.JSONDecodeError:
-                continue
+                try:
+                    data = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
 
-            choices = data.get("choices", [])
-            if not choices:
-                continue
+                choices = data.get("choices", [])
+                if not choices:
+                    continue
 
-            delta = choices[0].get("delta", {})
+                delta = choices[0].get("delta", {})
 
-            # 文本块
-            content = delta.get("content", "")
-            if content:
-                full_content += content
-                yield ("text", content)
+                # 文本块
+                content = delta.get("content", "")
+                if content:
+                    full_content += content
+                    yield ("text", content)
 
-            # 工具调用块（需跨 chunk 累积）
-            tc_list = delta.get("tool_calls")
-            if tc_list:
-                for tc in tc_list:
-                    idx = tc.get("index", 0)
-                    if idx not in accumulated:
-                        # 首个 chunk：携带 id 和 function name
-                        accumulated[idx] = {
-                            "id": tc.get("id", ""),
-                            "type": "function",
-                            "function": {
-                                "name": tc.get("function", {}).get("name", ""),
-                                "arguments": tc.get("function", {}).get("arguments", ""),
-                            },
-                        }
-                    else:
-                        # 后续 chunk：追加 arguments
-                        args_chunk = tc.get("function", {}).get("arguments", "")
-                        if args_chunk:
-                            accumulated[idx]["function"]["arguments"] += args_chunk
+                # 工具调用块（需跨 chunk 累积）
+                tc_list = delta.get("tool_calls")
+                if tc_list:
+                    for tc in tc_list:
+                        idx = tc.get("index", 0)
+                        if idx not in accumulated:
+                            # 首个 chunk：携带 id 和 function name
+                            accumulated[idx] = {
+                                "id": tc.get("id", ""),
+                                "type": "function",
+                                "function": {
+                                    "name": tc.get("function", {}).get("name", ""),
+                                    "arguments": tc.get("function", {}).get("arguments", ""),
+                                },
+                            }
+                        else:
+                            # 后续 chunk：追加 arguments
+                            args_chunk = tc.get("function", {}).get("arguments", "")
+                            if args_chunk:
+                                accumulated[idx]["function"]["arguments"] += args_chunk
+        except requests.RequestException as e:
+            # 流式中断：若已产出内容，标注后返回部分结果；否则报错
+            logger.warning(f"流式响应中断: {e}")
+            if not full_content and not accumulated:
+                yield ("text", f"[流式响应中断] {str(e)[:200]}")
+                yield ("done", Message(
+                    role="assistant",
+                    content=f"[流式响应中断] {str(e)[:200]}",
+                ))
+                return
+            full_content += "\n\n[流式响应中断，以上为已接收的部分内容]"
 
         # 构建最终 Message
         tool_calls = None

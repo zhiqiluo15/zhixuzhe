@@ -523,3 +523,49 @@
 - **验证**：测试 20/20 全绿；`memory/conversations/` 清空；生产 diary 只含真实记录；`import` 链健康。
 - **教训**：测试必须用临时目录（`tmp_path`）隔离，灵魂层数据对测试是只读黑盒。已丢失的 conversations JSONL 对话内容可从 diary 找回（Recorder 独立备份）。
 - **未修复项**：git 历史 commit 信息全是 "ok"（无法重写历史），建议后续 commit 遵循 `feat/fix/refactor: 描述` 规范。
+
+### 第二次深度体检修复：复发 bug + 自进化闭环 + SkillChain 接入（2026-08-07）
+
+- **动机**：第二轮全项目体检发现 2 个 P0 级复发 bug（其中 P0-1 是上轮已"修复"的同类问题）、自进化闭环关键断裂、SkillChain 死代码、前端 XSS 等共 11 项问题。
+- **P0-1 0 字节会话文件导致历史恢复失效（复发，本次修根因）**：
+  - 现象：`memory/conversations/` 残留 0 字节空会话文件（reset/异常退出后 `new_session` 只 `touch` 不写内容），时间戳最新 → `latest_session()` 误选空文件 → Agent 启动恢复到空历史，真实会话被冻结。
+  - **复发根因**：上轮（2026-08-06 体检修复）只清了测试残留的 2 个空文件，**未修 `latest_session` 根因**——只要 reset 或异常退出就会再产生空文件。本次彻底修根因。
+  - 修复：[history.py](engine/core/history.py) `latest_session()` 过滤 0 字节文件；`save()` 空消息列表时跳过写入（不创建空文件）；`save()` 改原子写入（临时文件 + rename，防崩溃损坏）。
+  - 同步删除已存在的 0 字节残留文件。真实场景验证：`latest_session` 现正确选中 7583 字节真实会话。
+- **P0-2 detect_host GPU 身份字段对比失效**：
+  - 现象：`IDENTITY_KEYS` 含 `"GPU 型号"`，但 `detect_gpu()` 有 NVIDIA 卡时返回 `"GPU 列表"`，无卡才返回 `"GPU 型号"` → `read_latest()` 永远读不到 GPU 字段 → GPU 变更检测失效。
+  - 修复：`IDENTITY_KEYS` 改用 `"GPU 列表"`。验证：`read_latest` 现能读到 RTX 5060 信息。
+- **P1-1 经验沉淀闭环断裂（自进化核心）**：
+  - 现象：`recorder.record_experience()` 定义了但全项目无生产代码调用，`memory/experience/` 无实际经验文件。CHANGELOG 宣称"分层记忆读写闭合"但经验写入路径从未运转。
+  - 修复：[task.py](engine/core/task.py) `TaskRunner.run` 综合后新增 `_reflect_experience()` 反思步骤——让 Brain 判断本次执行是否有值得沉淀的教训，有则输出 JSON（scene+lesson）调 `record_experience` 写入经验库，无则 skip 避免膨胀。反思失败不阻断主流程。
+  - **机制闭合，质量待运行迭代**：经验质量取决于 prompt 设计 + 真实运行，后续需跑真实任务验证经验质量后迭代 prompt。
+- **P1-2 think_stream 流式重试边界 + 读取超时**：
+  - 现象：`think_stream` 重试只覆盖请求建立阶段，流式迭代阶段（iter_lines）连接中断直接抛异常；且无读取超时，服务器静默不发包时无限阻塞。
+  - 修复：[deepseek_api.py](engine/brain/deepseek_api.py) timeout 改元组 `(connect, read)` 防阻塞；iter_lines 包 try/except，中断时若已有累积内容则返回部分结果（标注中断），无内容则报错。**不重试流式迭代**——已向用户输出过的文本重发会造成重复显示，属合理取舍。
+- **P1-3 SkillChain 接入（用户决定接入而非删除）**：
+  - 现象：[orchestrator.py](engine/core/orchestrator.py) 143 行 dead code，从未被 import/调用；且访问 TaskRunner 私有方法 `_execute_step`/`_synthesize`（上轮 P2-3 声称改公共 API 只修了 `_find_skill`，这两处漏修）。
+  - 修复：
+    1. [task.py](engine/core/task.py) 新增公共方法 `execute_plan(goal, plan, ...) -> (final, step_results)`，封装执行+综合；`run` 内部改调它消除重复。
+    2. [orchestrator.py](engine/core/orchestrator.py) `SkillChain.run` 改用 `execute_plan`，封装泄漏彻底消除；新增 `verbose_callback` 参数支持 Web 端 SSE 进度推送。
+    3. [loop.py](engine/core/loop.py) REPL 新增 `chain <目标> | <技能1> <技能2>` 命令；help 文本同步更新；task/chain 结果入 history（修 P3-2，后续对话可知刚执行过任务）。
+    4. [web_server.py](engine/web_server.py) 新增 `POST /chain` 端点，SSE 流式推送链式进度。
+  - **未来演进**：技能增多后 Router 关键词匹配会成瓶颈（等真实冲突再升级 LLM 路由）；SkillChain 暂只做顺序串联，Parallelization/Evaluator-Optimizer 等模式等真实需求出现再加（YAGNI）；远期方向是"技能自生长"——Brain 从成功任务提炼可复用 plan 自动生成新 Skill。
+- **P2-1 前端 XSS 防护**：
+  - 现象：[index.html](engine/web/index.html) 多处 innerHTML 注入未转义内容——task goal（用户输入）、task step（工具输出）、user 消息、assistant 非流式渲染均走 marked.js（默认不 sanitize）。
+  - 修复：新增 `escapeHtml`（纯文本转义，用于 user 消息/流式初始）、`sanitizeHtml`（白名单清理，移除 script/iframe/on* 事件属性/javascript: 协议）、`renderMarkdownSafe`（markdown→sanitize）。addMessage 的 system/assistant 非流式走 renderMarkdownSafe，user/流式走 escapeHtml；task_start 改用 markdown `**目标：**` 加粗。
+  - **局限**：sanitizeHtml 是简易白名单，覆盖常见 XSS 向量但不保证对抗所有 payload；工业级防护需引 DOMPurify（破坏零依赖，暂不引入）。
+- **P2-2 web_fetch DNS rebinding（保留不修）**：
+  - 已有"请求前+重定向后"双私网校验，DNS rebinding 对本地 127.0.0.1 工具威胁低，实现完整防护（自定义 HTTPAdapter 固定 IP）复杂度高，性价比低，标注为已知风险，远期再加固。
+- **P2-3 react_loop 轮次耗尽返回带 tool_calls 的 response**：
+  - 修复：[react.py](engine/core/react.py) 轮次耗尽时若 response 仍含 tool_calls，清空 tool_calls 并标注"[已达到最大工具调用轮次]"，避免半成品 tool_calls 存入 history 造成上下文混乱。
+- **P3 杂项**：
+  - [history.py](engine/core/history.py) save 原子写入（见 P0-1）。
+  - [config.py](engine/config.py) `load_config` 局部变量 `config` 遮蔽模块单例 → 改 `cfg`。
+  - [file_io.py](engine/tools/file_io.py) `read_file` 新增二进制检测（前 2KB 含 NUL 字节视为二进制），避免 `errors="replace"` 静默损坏。
+  - [detect_host.py](engine/tools/detect_host.py) 新增 `_cleanup_snapshots()`，body 快照仅保留最近 6 个（latest.md 不计入不删除），防无限增长。
+  - [loop.py](engine/core/loop.py) task/chain 结果入 history（见 P1-3）。
+- **验证**：测试 20/20 全绿（更新 `test_history_latest_session_picks_newest` 以反映"空文件被忽略"新语义）；import 链健康；execute_plan/SkillChain.run/_reflect_experience 签名正确；P0-1/P0-2 真实场景验证通过；help 文本含 chain 命令。
+- **教训**：
+  1. **复发 bug 要修根因**：上轮 P0-1 只清残留未修 `latest_session`，必然复发。本次修根因（过滤空文件 + save 跳过空写入）。
+  2. **CHANGELOG 声称的"闭环"要用调用链验证**：P1-1 经验沉淀号称闭合但无调用路径，纯属文档负债。
+  3. **dead code 要么接入要么删除**：SkillChain 搁置即腐烂（封装泄漏漏修）。接入时让 TaskRunner 暴露公共方法，不访问私有。

@@ -456,21 +456,31 @@ def test_history_load_corrupted_line(tmp_path):
 
 
 def test_history_latest_session_picks_newest(tmp_path):
-    """多次会话时 latest_session 返回最新的"""
+    """多次会话时 latest_session 返回最新的（仅含内容的会话，空文件应被忽略）"""
     print("\n" + "=" * 50)
     print("测试 14: HistoryStore 选最新会话")
     import time as _time
 
     store = HistoryStore(root=tmp_path)
 
-    # 创建两个会话文件
+    # 创建两个会话并写入内容（空文件不应被 latest_session 选中）
     s1 = store.new_session()
+    store.save([Message(role="user", content="第一条")])
     _time.sleep(0.1)
+    store._current = None  # 强制下一次 new_session 创建新文件
     s2 = store.new_session()
+    store.save([Message(role="user", content="第二条")])
 
     latest = store.latest_session()
     assert latest == s2, f"期望 {s2.name}，实际 {latest.name if latest else 'None'}"
-    print("  ✅ 通过：两个会话文件中正确选出最新的")
+    print("  ✅ 通过：两个有内容会话中正确选出最新的")
+
+    # 验证空文件被忽略：再 new_session 但不 save，latest 仍应是 s2
+    store._current = None
+    s3 = store.new_session()  # 只 touch 空文件，不 save
+    latest = store.latest_session()
+    assert latest == s2, f"空文件不应被选中，期望 {s2.name}，实际 {latest.name if latest else 'None'}"
+    print("  ✅ 通过：0 字节空文件被 latest_session 正确忽略")
 
 
 def test_history_no_prior_session(tmp_path):

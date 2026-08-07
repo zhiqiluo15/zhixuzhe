@@ -218,41 +218,41 @@ def load_config(path: Path | None = None) -> Config:
     if path is None:
         path = _PROJECT_ROOT / "config.yaml"
 
-    config = Config()
+    cfg = Config()
 
     if not path.exists():
-        return config
+        return cfg
 
     raw = path.read_text(encoding="utf-8")
     data = _resolve_dict(_parse_yaml(raw))
 
     # 逐层合并
     if "model" in data:
-        config.model = ModelConfig(**{
+        cfg.model = ModelConfig(**{
             k: v for k, v in data["model"].items()
             if k in ModelConfig.__dataclass_fields__
         })
 
     if "agent" in data:
-        config.agent = AgentConfig(**{
+        cfg.agent = AgentConfig(**{
             k: v for k, v in data["agent"].items()
             if k in AgentConfig.__dataclass_fields__
         })
 
     if "task" in data:
-        config.task = TaskConfig(**{
+        cfg.task = TaskConfig(**{
             k: v for k, v in data["task"].items()
             if k in TaskConfig.__dataclass_fields__
         })
 
     if "memory" in data:
-        config.memory = MemoryConfig(**{
+        cfg.memory = MemoryConfig(**{
             k: v for k, v in data["memory"].items()
             if k in MemoryConfig.__dataclass_fields__
         })
 
     if "logging" in data:
-        config.logging = LoggingConfig(**{
+        cfg.logging = LoggingConfig(**{
             k: v for k, v in data["logging"].items()
             if k in LoggingConfig.__dataclass_fields__
         })
@@ -260,17 +260,17 @@ def load_config(path: Path | None = None) -> Config:
     if "tools" in data:
         tools_data = data["tools"]
         if "shell" in tools_data:
-            config.tools.shell = ShellToolConfig(**{
+            cfg.tools.shell = ShellToolConfig(**{
                 k: v for k, v in tools_data["shell"].items()
                 if k in ShellToolConfig.__dataclass_fields__
             })
         if "file" in tools_data:
-            config.tools.file = FileToolConfig(**{
+            cfg.tools.file = FileToolConfig(**{
                 k: v for k, v in tools_data["file"].items()
                 if k in FileToolConfig.__dataclass_fields__
             })
 
-    return config
+    return cfg
 
 
 # 全局单例

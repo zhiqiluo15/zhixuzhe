@@ -32,7 +32,12 @@ PROFILE_DIR = ROOT / "memory" / "body"
 LATEST_FILE = PROFILE_DIR / "latest.md"
 
 # 用于宿主机变更对比的核心身份字段
-IDENTITY_KEYS = ["主机名", "操作系统", "CPU 型号", "物理核心数", "GPU 型号"]
+# 注意：detect_gpu() 在有 NVIDIA 卡时返回 "GPU 列表"，无卡时返回 "GPU 型号"。
+# 用 "GPU 列表" 作为身份字段——有卡场景下它始终存在，能正确反映 GPU 变更。
+IDENTITY_KEYS = ["主机名", "操作系统", "CPU 型号", "物理核心数", "GPU 列表"]
+
+# 历史快照保留数量（含 latest.md），超出则清理最旧的
+MAX_SNAPSHOTS = 6
 
 
 def _run(cmd: list[str], timeout: int = 15) -> str | None:
@@ -181,6 +186,25 @@ def read_latest() -> dict | None:
     return previous or None
 
 
+def _cleanup_snapshots() -> None:
+    """清理旧身体档案快照，仅保留最近 MAX_SNAPSHOTS 个时间戳文件。
+
+    latest.md 是当前档案的稳定引用，不计入清理范围、永不删除。
+    时间戳文件名格式 YYYYMMDD_HHMMSS.md，字典序 = 时间序。
+    """
+    snapshots = sorted(
+        (f for f in PROFILE_DIR.glob("*.md") if f.name != "latest.md"),
+        key=lambda p: p.name,
+        reverse=True,
+    )
+    for old in snapshots[MAX_SNAPSHOTS:]:
+        try:
+            old.unlink()
+            logger.debug(f"清理旧快照: {old.name}")
+        except OSError:
+            pass
+
+
 def detect_host() -> str:
     """检测宿主机信息，保存档案，返回格式化报告。供 Tool 调用。"""
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
@@ -231,6 +255,9 @@ def detect_host() -> str:
         changed = changed_keys if changed_keys else []
 
     LATEST_FILE.write_text(content, encoding="utf-8")
+
+    # 清理旧快照，仅保留最近 MAX_SNAPSHOTS 个（latest.md 不计入、不删除）
+    _cleanup_snapshots()
 
     # 日志
     logger.info(f"身体档案已生成: {snapshot.relative_to(ROOT)}")

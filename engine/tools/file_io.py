@@ -48,6 +48,15 @@ def read_file(filepath: str, max_chars: int | None = None) -> str:
     if path.is_dir():
         return f"错误: 路径是目录而非文件 — {filepath}"
 
+    # 二进制检测：读取前 2KB，若含 NUL 字节视为二进制，避免 errors="replace" 静默损坏
+    try:
+        with open(path, "rb") as bf:
+            head = bf.read(2048)
+        if b"\x00" in head:
+            return f"错误: 文件为二进制格式，无法以文本读取 — {filepath}"
+    except Exception as e:
+        return f"读取文件失败: {e}"
+
     try:
         content = path.read_text(encoding="utf-8", errors="replace")
     except Exception as e:

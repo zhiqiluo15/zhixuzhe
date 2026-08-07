@@ -545,18 +545,50 @@ function scrollBottom() {
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
-// ── Markdown 渲染 ──
+// ── Markdown 渲染 + XSS 防护 ──
 
 function renderMarkdown(text) {
   if (typeof marked === 'undefined') return text;
   return marked.parse(text, { breaks: true, gfm: true });
 }
 
+// 转义纯文本为 HTML 安全字符串（用于 user 消息、流式初始内容）
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// 白名单清理 HTML：移除危险元素和事件属性，防 markdown 渲染后的内联 HTML 注入
+function sanitizeHtml(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  tmp.querySelectorAll('script,style,iframe,object,embed,link,meta,base,form').forEach(el => el.remove());
+  tmp.querySelectorAll('*').forEach(el => {
+    [...el.attributes].forEach(attr => {
+      const name = attr.name.toLowerCase();
+      const val = (attr.value || '').toLowerCase().trim();
+      if (name.startsWith('on')) {
+        el.removeAttribute(attr.name);
+      } else if ((name === 'href' || name === 'src' || name === 'xlink:href') &&
+                 (val.startsWith('javascript:') || val.startsWith('data:text/html'))) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return tmp.innerHTML;
+}
+
+// 安全渲染：markdown → sanitize
+function renderMarkdownSafe(text) {
+  return sanitizeHtml(renderMarkdown(text));
+}
+
 function finalizeBubble(bubble) {
   if (!bubble || !bubble.textContent) return;
   const raw = bubble.textContent;
   bubble.setAttribute('data-raw', raw);
-  bubble.innerHTML = `<div class="rendered-md">${renderMarkdown(raw)}</div>`;
+  bubble.innerHTML = `<div class="rendered-md">${renderMarkdownSafe(raw)}</div>`;
 }
 
 // 头像 SVG 内联
@@ -568,15 +600,20 @@ function addMessage(role, content, streaming=false) {
   div.className = `msg ${role}`;
 
   if (role === 'system') {
-    div.innerHTML = `<div class="bubble">${content}</div>`;
+    // system 消息渲染 markdown（支持 **加粗** 等），经 sanitize 防 XSS
+    div.innerHTML = `<div class="bubble">${renderMarkdownSafe(content)}</div>`;
   } else {
     const avatarClass = role === 'user' ? 'user-av' : 'assistant-av';
     const bubbleClass = role === 'user' ? 'user-bub' : 'assistant-bub';
     const avatarSvg = role === 'user' ? USER_AVATAR_SVG : AI_AVATAR_SVG;
     const isAssistant = role === 'assistant';
-    const rendered = isAssistant && !streaming
-      ? `<div class="rendered-md">${renderMarkdown(content)}</div>`
-      : content;
+    // user 消息纯文本转义；assistant 非流式渲染 markdown；流式用转义文本（后续 textContent 累积）
+    let rendered;
+    if (isAssistant && !streaming) {
+      rendered = `<div class="rendered-md">${renderMarkdownSafe(content)}</div>`;
+    } else {
+      rendered = escapeHtml(content);
+    }
     div.innerHTML = `
       <div class="avatar ${avatarClass}">${avatarSvg}</div>
       <div class="bubble ${bubbleClass} ${streaming ? 'streaming' : ''}">${rendered}</div>
@@ -660,7 +697,7 @@ async function send() {
             setHint('');
 
           } else if (data.type === 'task_start') {
-            addMessage('system', `<b>目标：</b>${data.goal}`);
+            addMessage('system', `**目标：** ${data.goal}`);
 
           } else if (data.type === 'task_step') {
             addMessage('system', data.content);

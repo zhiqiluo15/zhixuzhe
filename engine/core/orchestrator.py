@@ -9,6 +9,8 @@ SkillChain 是 Orchestrator 的 v1 实现（Anthropic 五模式中的 Prompt Cha
 - 未来的 Parallel/Evaluator 模式可以继续加在这个文件里
 """
 
+from typing import Callable
+
 from engine.brain.base import Brain
 from engine.tools.registry import ToolRegistry
 from engine.core.recorder import Recorder
@@ -51,20 +53,28 @@ class SkillChain:
         skill_names: list[str],
         verbose: bool = True,
         confirm_callback: ConfirmCallback | None = None,
+        verbose_callback: Callable[[str], None] | None = None,
     ) -> str:
         """按顺序执行技能链。
 
         Args:
             initial_goal: 初始目标
             skill_names: 技能名称列表（按注册时的 skill.name）
-            verbose: 是否打印进度
+            verbose: 是否打印进度（CLI 模式）
             confirm_callback: HITL 确认回调
+            verbose_callback: 进度回调（Web 模式优先于 print）
 
         Returns:
             最后一个技能的综合结论
         """
         if not skill_names:
             return "错误: 技能链为空，至少需要一个技能"
+
+        def _vprint(msg: str) -> None:
+            if verbose_callback is not None:
+                verbose_callback(msg)
+            elif verbose:
+                print(msg)
 
         current_goal = initial_goal
         chain_results: list[dict] = []
@@ -75,44 +85,25 @@ class SkillChain:
                 logger.error(f"技能 '{name}' 未注册，链条中断")
                 return f"错误: 技能 '{name}' 未在 SkillRegistry 中注册"
 
-            if verbose:
-                print(f"\n🔗 [{i + 1}/{len(skill_names)}] {skill.name}: {skill.description}")
+            _vprint(f"\n🔗 [{i + 1}/{len(skill_names)}] {skill.name}: {skill.description}")
 
             # 强制走 skill 规划（不走 LLM 即兴规划兜底）
             logger.info(f"SkillChain 执行: {skill.name}（目标: {current_goal[:50]}...）")
 
-            # 直接用 skill.plan() 生成步骤
+            # 用 skill.plan() 生成步骤
             plan = skill.plan(current_goal)
-            if verbose:
-                print(f"  共 {len(plan)} 步")
+            _vprint(f"  共 {len(plan)} 步")
 
-            # 执行步骤
-            step_results: list[str] = []
+            # 注入记忆上下文
             memory_context = ""
             if self.task_runner.memory_manager:
                 memory_context = self.task_runner.memory_manager.build_context(current_goal)
 
-            for si, step in enumerate(plan):
-                if verbose:
-                    print(f"  ⏳ [{si + 1}/{len(plan)}] {step[:50]}...", end=" ", flush=True)
-                try:
-                    result = self.task_runner._execute_step(
-                        current_goal, step, si, plan,
-                        step_results[:si],
-                        confirm_callback,
-                        memory_context if si == 0 else "",
-                    )
-                    step_results.append(result)
-                    if verbose:
-                        print("✅")
-                except Exception as e:
-                    logger.error(f"步骤 {si + 1} 失败: {e}")
-                    step_results.append(f"执行失败: {e}")
-                    if verbose:
-                        print(f"❌ {e}")
-
-            # 综合
-            final = self.task_runner._synthesize(current_goal, plan, step_results)
+            # 执行 + 综合（复用 TaskRunner 公共方法，消除私有访问）
+            verbose_cb = (lambda m: _vprint(m)) if (verbose or verbose_callback) else None
+            final, step_results = self.task_runner.execute_plan(
+                current_goal, plan, confirm_callback, verbose_cb, memory_context,
+            )
 
             # 记录
             self.task_runner.recorder.record_task(
@@ -130,8 +121,7 @@ class SkillChain:
             # 下一轮的 Goal = 本轮的最终结果摘要
             current_goal = final
 
-        if verbose:
-            print(f"\n✅ 技能链执行完毕: {' → '.join(skill_names)}")
+        _vprint(f"\n✅ 技能链执行完毕: {' → '.join(skill_names)}")
 
         return current_goal
 

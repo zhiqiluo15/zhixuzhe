@@ -29,6 +29,7 @@ SYSTEM_PROMPT = """你是智序者（zhixuzhe），一个以 DeepSeek 为基座�
 def _show_help() -> None:
     print("命令：")
     print("  task <目标>   自主任务模式（规划→执行→综合）")
+    print("  chain <目标> | <技能1> <技能2> ...   技能链式执行")
     print("  skills        列出已注册技能")
     print("  reset         重置对话历史")
     print("  help          显示此帮助")
@@ -220,6 +221,44 @@ class Agent:
                     confirm_callback=self._hitl_confirm,
                 )
                 print(f"\n═══ 最终结论 ═══\n\n{response}\n")
+                # 任务结果入历史，让后续对话知道刚执行过什么
+                self.history.append(Message(role="user", content=user_input))
+                self.history.append(Message(role="assistant", content=response))
+                if self.history_store:
+                    self.history_store.save(self.history)
+                continue
+
+            # 链式模式: chain <目标> | <技能1> <技能2> ...
+            if user_input.lower().startswith("chain "):
+                rest = user_input[6:]
+                if "|" not in rest:
+                    print('用法: chain <目标> | <技能1> <技能2> ...')
+                    continue
+                goal_part, skills_part = rest.split("|", 1)
+                goal = goal_part.strip()
+                skill_names = skills_part.split()
+                if not goal or not skill_names:
+                    print('用法: chain <目标> | <技能1> <技能2> ...')
+                    continue
+                if not self.skill_registry or len(self.skill_registry) == 0:
+                    print("错误: 无已注册技能，无法执行链式任务")
+                    continue
+                logger.info(f"进入链式模式: {goal[:50]} | {skill_names}")
+                from engine.core.orchestrator import SkillChain
+                chain = SkillChain(
+                    self.brain, self.tools, self.recorder,
+                    self.skill_registry, self.memory_manager,
+                )
+                response = chain.run(
+                    goal, skill_names,
+                    confirm_callback=self._hitl_confirm,
+                )
+                print(f"\n═══ 链式结论 ═══\n\n{response}\n")
+                # 链式结果入历史
+                self.history.append(Message(role="user", content=user_input))
+                self.history.append(Message(role="assistant", content=response))
+                if self.history_store:
+                    self.history_store.save(self.history)
                 continue
 
             # 普通对话（已在 run() 内流式输出，这里不重复打印）
