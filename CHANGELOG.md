@@ -451,6 +451,43 @@
 
 ---
 
+### 深度体检修复：配置解析 + 参数生效 + SSRF + 封装性（2026-08-07）
+
+基于全面体检报告，按 P1→P3 优先级修复全部检出的问题。
+
+#### P1-1 修复 config.yaml 块状列表解析失效
+- **问题**：`_parse_yaml` 的 `list_context` 声明后从未赋值，`- item` 块状列表项被静默丢弃（实测 `allowed_dirs` 解析为空 dict）。
+- **修复**：[engine/config.py](file:///t:/zhixuzhe/engine/config.py#L49) 重写列表解析——引入 `pending_list` 记录最近的空值 key，`- item` 缩进更深时归入其列表；原空 dict 自动转为 list。内联 `[..]`、嵌套 dict 行为不变。
+- **验证**：块状/内联/嵌套三种形态均正确；原 `config.yaml` 加载回归正常。
+
+#### P1-2 修复 temperature / max_tokens 配置未生效
+- **问题**：`config.yaml` 定义了 `temperature`/`max_tokens`，但 brain 的 payload 从未携带，改配置无效。
+- **修复**：[engine/brain/deepseek_api.py](file:///t:/zhixuzhe/engine/brain/deepseek_api.py#L65) 的 `think()` 与 `think_stream()` 均将两参数写入请求体。
+
+#### P2-3 orchestrator 改用公共 API
+- **问题**：`_find_skill` 直接访问 `self.skill_registry._skills` 私有属性，违反 v1.1 P3-11 已确立的封装规范。
+- **修复**：[engine/core/orchestrator.py](file:///t:/zhixuzhe/engine/core/orchestrator.py#L138) 改用已存在的 `SkillRegistry.list_all()`。
+
+#### P2-4 SSE 解析兼容无空格前缀
+- **问题**：`think_stream` 只认 `data: `（带空格），`data:{...}`（无空格）会被丢弃。
+- **修复**：[engine/brain/deepseek_api.py](file:///t:/zhixuzhe/engine/brain/deepseek_api.py#L191) 改为 `startswith("data:")` + `strip()` 去前缀。
+
+#### P2-5 web_fetch 增加 SSRF 防护
+- **问题**：`web_fetch` 可访问 `127.0.0.1`、内网/保留地址，存在被诱导探测内网的风险。
+- **修复**：[engine/tools/web_fetch.py](file:///t:/zhixuzhe/engine/tools/web_fetch.py#L23) 新增 `_is_blocked_url()`（回环/私网/链路本地/保留/组播），请求前与重定向后各校验一次。
+- **验证**：`127.0.0.1`/`localhost`/`192.168.x`/`10.x` 均拦截，公网放行。
+
+#### P3 web_server 并发锁 + 死代码清理
+- **问题**：`_pending_confirms` 全局 dict 无显式锁，依赖 GIL 原子性；`_parse_yaml` 的 `list_context` 为死代码。
+- **修复**：[engine/web_server.py](file:///t:/zhixuzhe/engine/web_server.py#L36) 新增 `_pending_confirms_lock`，确认回调与 `/confirm` 端点的读改写统一加锁；死代码随 P1-1 重写清除。
+
+#### 未纳入修复（有意保留）
+- **run_shell 命令白名单**：`run_shell` 是通用 shell 工具，加白名单会破坏功能性；现有 HITL 确认（`confirm_tools`）已提供足够保护，列为远期加固而非本次修复。
+
+- **测试**：20/20 全绿；config 解析与 SSRF 防护均实测验证。
+
+---
+
 ### 启动脚本闪退修复：LF 换行 → CRLF + GBK 编码（2026-08-06，三轮修正，已被上述终版取代）
 
 - **问题（第一轮）**：双击 `run_web.bat` / `run.bat` 窗口一闪而过；终端直跑 `python engine\web_server.py 8080` 却一切正常。

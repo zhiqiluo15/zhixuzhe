@@ -33,6 +33,7 @@ _agent_lock = threading.Lock()
 
 # ── HITL 确认状态 ──
 _pending_confirms: dict[str, dict] = {}  # confirm_id → {"event": threading.Event, "result": bool}
+_pending_confirms_lock = threading.Lock()  # 保护 _pending_confirms 的并发访问
 
 
 def _try_init_agent():
@@ -104,17 +105,20 @@ def _make_web_confirm_callback(sse_write):
     def confirm_callback(tool_name: str, args: dict) -> bool:
         confirm_id = str(uuid.uuid4())
         event = threading.Event()
-        _pending_confirms[confirm_id] = {"event": event, "result": False}
+        with _pending_confirms_lock:
+            _pending_confirms[confirm_id] = {"event": event, "result": False}
         sse_write("confirm_request", {
             "id": confirm_id,
             "tool_name": tool_name,
             "args": args,
         })
         if event.wait(timeout=60):
-            result = _pending_confirms.pop(confirm_id, {}).get("result", False)
+            with _pending_confirms_lock:
+                result = _pending_confirms.pop(confirm_id, {}).get("result", False)
             return result
         else:
-            _pending_confirms.pop(confirm_id, None)
+            with _pending_confirms_lock:
+                _pending_confirms.pop(confirm_id, None)
             return False
 
     return confirm_callback
@@ -272,13 +276,13 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             self._error(400, "无效请求体")
             return
 
-        pending = _pending_confirms.get(confirm_id)
-        if pending is None:
-            self._error(404, "确认请求已过期或不存在")
-            return
-
-        pending["result"] = approved
-        pending["event"].set()
+        with _pending_confirms_lock:
+            pending = _pending_confirms.get(confirm_id)
+            if pending is None:
+                self._error(404, "确认请求已过期或不存在")
+                return
+            pending["result"] = approved
+            pending["event"].set()
 
         self._ok()
         self.wfile.write(json.dumps({"status": "ok"}).encode())

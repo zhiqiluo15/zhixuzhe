@@ -1,7 +1,12 @@
 """网络请求工具 —— 获取网页内容
 
 基于 requests 库，用于让 Agent 具备"上网"能力。
+含 SSRF 防护：拒绝访问本地/内网/保留地址，防止被诱导探测内网。
 """
+
+import ipaddress
+import socket
+from urllib.parse import urlparse
 
 import requests
 
@@ -13,6 +18,27 @@ _HEADERS = {
         "Chrome/125.0.0.0 Safari/537.36"
     ),
 }
+
+
+def _is_blocked_url(url: str) -> bool:
+    """判断 URL 是否指向本地/内网/保留地址（用于 SSRF 防护）。"""
+    host = urlparse(url).hostname
+    if not host:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        # 域名，尝试解析为 IP 再判断
+        try:
+            ip = ipaddress.ip_address(socket.gethostbyname(host))
+        except Exception:
+            return False
+    return (
+        ip.is_private or ip.is_loopback or ip.is_link_local
+        or ip.is_reserved or ip.is_multicast
+    )
 
 
 def web_fetch(url: str, timeout: int = 15, max_chars: int = 8000) -> str:
@@ -29,6 +55,10 @@ def web_fetch(url: str, timeout: int = 15, max_chars: int = 8000) -> str:
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
 
+    # SSRF 防护：请求前检查目标地址
+    if _is_blocked_url(url):
+        return f"错误: 禁止访问本地/内网/保留地址 — {url}"
+
     try:
         resp = requests.get(url, headers=_HEADERS, timeout=timeout, allow_redirects=True)
         resp.raise_for_status()
@@ -40,6 +70,10 @@ def web_fetch(url: str, timeout: int = 15, max_chars: int = 8000) -> str:
         return f"HTTP 错误 {e.response.status_code}: {url}"
     except Exception as e:
         return f"请求失败: {e}"
+
+    # 重定向后的最终地址也需校验（防重定向到内网）
+    if _is_blocked_url(resp.url):
+        return f"错误: 重定向到本地/内网/保留地址 — {resp.url}"
 
     # 简单提取纯文本（去除 HTML 标签）
     content_type = resp.headers.get("Content-Type", "")

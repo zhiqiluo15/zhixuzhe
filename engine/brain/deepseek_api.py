@@ -65,6 +65,8 @@ class DeepSeekAPIBrain(Brain):
         payload: dict = {
             "model": self.model,
             "messages": [m.to_dict() for m in messages],
+            "temperature": config.model.temperature,
+            "max_tokens": config.model.max_tokens,
         }
         if tools:
             payload["tools"] = tools
@@ -138,6 +140,8 @@ class DeepSeekAPIBrain(Brain):
             "model": self.model,
             "messages": [m.to_dict() for m in messages],
             "stream": True,
+            "temperature": config.model.temperature,
+            "max_tokens": config.model.max_tokens,
         }
         if tools:
             payload["tools"] = tools
@@ -184,9 +188,9 @@ class DeepSeekAPIBrain(Brain):
         for line in resp.iter_lines(decode_unicode=True):
             if not line:
                 continue
-            if not line.startswith("data: "):
+            if not line.startswith("data:"):
                 continue
-            data_str = line[6:]  # 去掉 "data: " 前缀
+            data_str = line[5:].strip()  # 去掉 "data:" 前缀，兼容有无空格
             if data_str == "[DONE]":
                 break
 

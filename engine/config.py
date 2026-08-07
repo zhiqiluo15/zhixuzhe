@@ -47,13 +47,14 @@ def _resolve_dict(data: dict) -> dict:
 # ── 微型 YAML 解析器（仅支持所需语法，零依赖） ──
 
 def _parse_yaml(text: str) -> dict:
-    """解析简化 YAML：支持 key: value、嵌套 dict、list、# 注释。
+    """解析简化 YAML：支持 key: value、嵌套 dict、list（块状 `- item` 与内联 `[..]`）、# 注释。
     不处理多行字符串、引用、tag 等高级特性。
     """
     lines = text.splitlines()
     result: dict = {}
     stack: list[tuple[int, dict]] = [(0, result)]  # (indent, target_dict)
-    list_context: tuple[int, dict, str] | None = None  # (indent, parent, key)
+    # 记录最近一个"空值 key"，用于承接其下缩进的块状列表项 - (key, key_indent, parent)
+    pending_list: tuple[str, int, dict] | None = None
 
     for line in lines:
         stripped = line.strip()
@@ -62,16 +63,18 @@ def _parse_yaml(text: str) -> dict:
 
         indent = len(line) - len(line.lstrip())
 
-        # 列表项: - value
-        if stripped.startswith("- "):
-            value = stripped[2:].strip().strip('"').strip("'")
-            # 解析值类型
-            value = _parse_value(value)
+        # 块状列表项: - value 或单独的 -
+        if stripped.startswith("-"):
+            item_str = stripped[1:].strip().strip('"').strip("'")
+            item = item_str if item_str == "" else _parse_value(item_str)
 
-            # 找到最近的 list context 或创建
-            if list_context and indent > list_context[0]:
-                # 追加到当前列表
-                list_context[1][list_context[2]].append(value)
+            # 若该项缩进比最近空值 key 更深，则归入该 key 的列表
+            if pending_list and indent > pending_list[1]:
+                key, _, parent = pending_list
+                # 若当前是空 dict（key: 后无子键），先转为列表
+                if isinstance(parent.get(key), dict) and not parent[key]:
+                    parent[key] = []
+                parent[key].append(item)
             continue
 
         # key: value
@@ -82,7 +85,6 @@ def _parse_yaml(text: str) -> dict:
 
             # 去除行内注释 (e.g. "5  # comment")
             if "#" in val:
-                # 注意：值中的 # 不应去除（如 URL 中的 #），但我们的配置不需要
                 val = val.split("#")[0].strip()
 
             # 回退栈到合适的缩进级别
@@ -95,19 +97,22 @@ def _parse_yaml(text: str) -> dict:
                 current = stack[-1][1]
 
             if val == "":
-                # 嵌套 dict
+                # 嵌套 dict（也可能是块状列表，由后续 - item 决定）
                 nested: dict = {}
                 current[key] = nested
                 stack.append((indent, nested))
+                pending_list = (key, indent, current)
             elif val.startswith("[") and val.endswith("]"):
-                # 列表值
+                # 内联列表值
                 items = val[1:-1].split(",")
                 current[key] = [
                     _parse_value(i.strip().strip('"').strip("'")) for i in items if i.strip()
                 ]
+                pending_list = None
             else:
                 val = val.strip('"').strip("'")
                 current[key] = _parse_value(val)
+                pending_list = None
 
     return result
 

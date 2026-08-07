@@ -137,7 +137,7 @@ class SkillChain:
 
     def _find_skill(self, name: str) -> Skill | None:
         """根据名称查找技能实例"""
-        for skill in self.skill_registry._skills:
+        for skill in self.skill_registry.list_all():
             if skill.name == name:
                 return skill
         return None
