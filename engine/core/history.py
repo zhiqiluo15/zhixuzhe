@@ -61,21 +61,49 @@ class HistoryStore:
         return files[-1] if files else None
 
     def save(self, messages: list[Message]) -> None:
-        """保存当前完整历史到会话文件（原子写入）。
+        """保存当前完整历史到会话文件（原子写入，失败回退）。
 
         空消息列表时跳过写入，避免创建 0 字节空文件污染 latest_session。
         写入采用临时文件 + rename，防止进程崩溃在写一半损坏会话文件。
+        Windows 上若 .tmp 文件被锁定（杀软扫描/残留），回退到直接覆盖写。
         """
+        import logging
+        _logger = logging.getLogger("zhixuzhe.engine.core.history")
+
         if self._current is None:
             self.new_session()
         # 空历史不写入，避免残留空文件
         if not messages:
             return
+
         tmp = self._current.with_suffix(self._current.suffix + ".tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            for msg in messages:
-                f.write(json.dumps(msg.to_dict(), ensure_ascii=False) + "\n")
-        tmp.replace(self._current)  # 原子 rename（同卷）
+        # 清理可能残留的 tmp 文件（上一次崩溃/中断可能留下）
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                for msg in messages:
+                    f.write(json.dumps(msg.to_dict(), ensure_ascii=False) + "\n")
+            tmp.replace(self._current)  # 原子 rename（同卷）
+        except PermissionError as e:
+            # Windows 上 tmp 文件被锁定时（杀软/其他进程），回退到直接写
+            _logger.warning(f"原子写入失败（{e}），回退到直接写入")
+            try:
+                with open(self._current, "w", encoding="utf-8") as f:
+                    for msg in messages:
+                        f.write(json.dumps(msg.to_dict(), ensure_ascii=False) + "\n")
+                # 清理 tmp 残留
+                try:
+                    if tmp.exists():
+                        tmp.unlink()
+                except OSError:
+                    pass
+            except OSError as e2:
+                _logger.error(f"历史保存失败: {e2}")
 
     def load(self, filepath: Path) -> list[Message]:
         """从 JSONL 文件加载消息列表，跳过损坏行"""
