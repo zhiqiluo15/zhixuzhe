@@ -689,3 +689,13 @@
 - **端到端验证**：空 `.env` 启动服务 → GET / 下发 session ✓ → /status 未就绪 ✓ → POST /setup（合法格式 key）→ **200 {tools: 7, skills: 2}** ✓ → 无 cookie 403 ✓ → 恶意 Origin 403 ✓。
 - **环境提示**：调试期间 `.env` 曾被测试脚本写入假 key（含 `test` 字样触发占位符检测 → 设置报"占位符值"），现已清空为 `DEEPSEEK_API_KEY=`，用户需在网页重新填入真实 Key。
 - **排查经验**：Web 端"网络错误"不等于断网——`fetch()` 拒绝仅发生在连接级失败（服务未运行/连接被掐断/CORS 违规）。服务端必须保证任何异常路径都返回 JSON 错误响应，否则前端只能看到误导性的"网络错误"。
+
+### 网页设置 API Key 报 PermissionError：.env 写入加锁重试（2026-08-07）
+
+- **现象**：加固后错误从"网络错误"变为可读文案——`设置过程中发生错误（PermissionError）: [Errno 13] Permission denied: 'T:\\zhixuzhe\\.env'`。真实根因浮出：**写 .env 时遇文件锁**。
+- **排查**：当时无 python 进程在跑、`.env` 属性非只读、19 字节正常——排除进程占用与只读属性，指向**杀软实时扫描瞬时锁定**（Defender 对敏感文件按访问扫描）。与 CHANGELOG 已记录的 `agent.log`（RotatingFileHandler delay=True）和 `memory/diary`（Recorder._write_atomic 重试）同类问题，是**第三次同源文件锁问题**。
+- **修复**（[web_server.py](engine/web_server.py)）：新增模块级 `_write_env()`——**临时文件写入 + `os.replace` 原子替换 + 3 次重试（0.2s→0.4s 退避）**，沿用 Recorder._write_atomic 的成熟重试模式。
+  - 原子替换相比直接覆盖写：写一半崩溃不会损坏 Key 文件；目标文件被共享打开时 rename 成功率更高。
+  - 失败 **re-raise**（与 Recorder 的"吞掉不阻断"不同）：Key 必须保存成功，由 `_handle_setup` 转为 500 + 可读错误，用户可见且可重试。
+- **验证**：`_write_env` 单测通过（写入/替换/清理正常）；`GetDiagnostics` 无报错；`.env` 保持空、无残留临时文件。
+- **遗留提示**：若 3 次重试仍失败（0.6s 总窗口），多半是有程序（记事本/编辑器）正以独占方式打开 `.env`，需关闭后重试——无法在代码侧彻底解决独占锁。

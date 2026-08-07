@@ -147,6 +147,30 @@ def _make_web_confirm_callback(sse_write, session_id: str):
 
 # ── 读取前端 HTML ──
 
+def _write_env(env_path: Path, content: str) -> None:
+    """写 .env（临时文件 + 原子替换），带重试处理 Windows 瞬时文件锁。
+
+    与 Recorder._write_atomic / agent.log 同源问题：杀软实时扫描会短暂锁定文件。
+    失败 re-raise，由调用方转为可读错误（Key 必须保存成功，不能静默吞掉）。
+    """
+    import time
+    tmp = env_path.with_suffix(".env.tmp")
+    for attempt in range(3):
+        try:
+            tmp.write_text(content, encoding="utf-8")
+            os.replace(tmp, env_path)
+            return
+        except PermissionError:
+            if attempt < 2:
+                time.sleep(0.2 * (attempt + 1))  # 0.2s → 0.4s
+    # 3 次均失败：清理临时文件后上抛
+    try:
+        tmp.unlink(missing_ok=True)
+    except OSError:
+        pass
+    raise
+
+
 _PAGE = None
 
 
@@ -321,7 +345,7 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            # 写入 .env 文件（可能因文件锁/权限失败，必须保护，否则连接被掐断）
+            # 写入 .env 文件（杀软瞬时锁用 _write_env 重试，异常则返回可读错误而非断连）
             env_path = ROOT / ".env"
             existing = {}
             if env_path.exists():
@@ -332,7 +356,7 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
 
             existing["DEEPSEEK_API_KEY"] = api_key
             lines = [f"{k}={v}" for k, v in existing.items()]
-            env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            _write_env(env_path, "\n".join(lines) + "\n")
 
             # 重新加载配置（让新的 API Key 生效）
             os.environ["DEEPSEEK_API_KEY"] = api_key
