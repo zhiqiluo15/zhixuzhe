@@ -765,21 +765,43 @@ function setHint(text) {
   document.getElementById('hint').textContent = text;
 }
 
+function setTaskMode(active) {
+  isTaskMode = active;
+  taskBtn.classList.toggle('active', active);
+  inputEl.placeholder = active ? '输入任务目标...' : '输入消息...';
+  setHint(active ? '任务模式：智序者将自主规划并执行' : 'Enter 发送，Shift+Enter 换行');
+}
+
 function toggleTaskMode() {
-  isTaskMode = !isTaskMode;
-  taskBtn.classList.toggle('active', isTaskMode);
-  inputEl.placeholder = isTaskMode ? '输入任务目标...' : '输入消息...';
-  setHint(isTaskMode ? '任务模式：智序者将自主规划并执行' : 'Enter 发送，Shift+Enter 换行');
-  if (isTaskMode) {
+  const next = !isTaskMode;
+  setTaskMode(next);
+  if (next) {
     addMessage('system', '🔧 **已进入任务模式**：智序者将自主规划步骤、逐步执行（可能调用多个工具），完成后给出综合结论。输入目标后发送即可。');
   } else {
     addMessage('system', '已退出任务模式，恢复普通对话。');
   }
 }
 
+// 与后端 should_auto_task 的强任务信号对齐：命中 → 自动进入任务模式（零 LLM，与点按钮同路径）
+function isStrongTaskHint(text) {
+  const hints = [
+    '任务', '帮我做', '帮我完成', '帮我搞', '帮我实现',
+    '帮我写个', '帮我写一个', '帮我搭建', '帮我部署',
+    '做个', '搞个', '搭个', '部署一个', '实现一个',
+    '调研一下', '对比一下', '分析一下',
+  ];
+  const t = text.toLowerCase();
+  return hints.some(h => t.includes(h));
+}
+
 async function send() {
   const text = inputEl.value.trim();
   if (!text || isStreaming) return;
+
+  // 主动说任务：命中强任务信号 → 自动进入任务模式（与点按钮完全同路径，零 LLM 判断）
+  if (!isTaskMode && isStrongTaskHint(text)) {
+    setTaskMode(true);
+  }
 
   inputEl.value = '';
   isStreaming = true;
@@ -861,6 +883,8 @@ async function send() {
 
           } else if (data.type === 'task_start') {
             hideThinking();
+            // 无论手动 /task 还是后端自动升级，进入任务模式时都点亮任务按钮
+            setTaskMode(true);
             addMessage('system', `🔧 **任务模式执行中**\n**目标：** ${data.goal}\n智序者将自主规划并逐步执行，请稍候...`);
 
           } else if (data.type === 'task_step') {
