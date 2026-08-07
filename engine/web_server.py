@@ -151,24 +151,27 @@ def _write_env(env_path: Path, content: str) -> None:
     """写 .env（临时文件 + 原子替换），带重试处理 Windows 瞬时文件锁。
 
     与 Recorder._write_atomic / agent.log 同源问题：杀软实时扫描会短暂锁定文件。
-    失败 re-raise，由调用方转为可读错误（Key 必须保存成功，不能静默吞掉）。
+    5 次重试仍失败则显式抛出最后一个错误（不能在 except 块外裸 raise，
+    否则触发 RuntimeError: No active exception to reraise），由调用方转为可读错误。
     """
     import time
     tmp = env_path.with_suffix(".env.tmp")
-    for attempt in range(3):
+    last_error: OSError | None = None
+    for attempt in range(5):
         try:
             tmp.write_text(content, encoding="utf-8")
             os.replace(tmp, env_path)
             return
-        except PermissionError:
-            if attempt < 2:
-                time.sleep(0.2 * (attempt + 1))  # 0.2s → 0.4s
-    # 3 次均失败：清理临时文件后上抛
+        except PermissionError as e:
+            last_error = e
+            if attempt < 4:
+                time.sleep(0.2 * (attempt + 1))  # 0.2s → 0.4s → 0.6s → 0.8s
+    # 5 次均失败：清理临时文件后抛出最后一个错误
     try:
         tmp.unlink(missing_ok=True)
     except OSError:
         pass
-    raise
+    raise last_error if last_error is not None else PermissionError("无法写入 .env")
 
 
 _PAGE = None
@@ -366,6 +369,14 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
 
             # 尝试初始化
             agent = get_agent()
+        except PermissionError as e:
+            logger.error(f"/setup 写 .env 被拒绝（5 次重试均失败）: {e}")
+            self._error(500,
+                "无法写入 .env 文件（已被其他程序占用或安全软件拦截）。请排查："
+                "①关闭打开 .env 的程序（记事本/VS Code/资源管理器选中预览）；"
+                "②若仍失败，检查 Windows 安全中心的『受控文件夹访问』是否拦截了对 "
+                "T:\\zhixuzhe\\.env 的写入。完成后请重试。")
+            return
         except Exception as e:
             logger.error(f"/setup 处理失败（{type(e).__name__}）: {e}")
             self._error(500, f"设置过程中发生错误（{type(e).__name__}）: {e}")

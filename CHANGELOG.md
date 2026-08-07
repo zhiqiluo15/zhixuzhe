@@ -699,3 +699,14 @@
   - 失败 **re-raise**（与 Recorder 的"吞掉不阻断"不同）：Key 必须保存成功，由 `_handle_setup` 转为 500 + 可读错误，用户可见且可重试。
 - **验证**：`_write_env` 单测通过（写入/替换/清理正常）；`GetDiagnostics` 无报错；`.env` 保持空、无残留临时文件。
 - **遗留提示**：若 3 次重试仍失败（0.6s 总窗口），多半是有程序（记事本/编辑器）正以独占方式打开 `.env`，需关闭后重试——无法在代码侧彻底解决独占锁。
+
+### 修复 _write_env 裸 raise bug + 错误提示引导（2026-08-07）
+
+- **现象**：设置 Key 报新错 `设置过程中发生错误（RuntimeError）: No active exception to reraise`——且证明上一轮的 3 次重试（0.6s）也全部 PermissionError，锁非瞬时。
+- **根因（代码 bug）**：`_write_env` 3 次重试全失败后，在 `for` 循环外、`except` 块外执行裸 `raise`——Python 无参 `raise` 只能重抛当前正在处理的异常，循环外裸用即触发 `RuntimeError: No active exception to reraise`。错误信息反而掩盖了真正的 PermissionError。
+- **修复**（[web_server.py](engine/web_server.py)）：
+  1. `_write_env` 改为保存 `last_error` 显式抛出（`raise last_error if ... else PermissionError(...)`）；重试 3 → 5 次（退避 0.2→0.8s，总窗口 3s），提升扛瞬时锁能力。
+  2. `_handle_setup` 新增 `except PermissionError` 专门分支——返回可执行的排查指引（关闭打开 .env 的记事本/VS Code/资源管理器选中预览；检查 Windows 安全中心『受控文件夹访问』），不再显示晦涩的 `[Errno 13]`。
+- **验证**：monkeypatch `os.replace` 抛 PermissionError → `_write_env` 5 次重试后正确抛 `PermissionError`（不再 RuntimeError），无残留临时文件；`GetDiagnostics` 无报错。
+- **实测**：修复后当场检测 `.env` 可正常独占写入（WRITABLE-OK）——锁为间歇性（用户设置瞬间被资源管理器/杀软占用），重试+指引已覆盖。
+- **教训**：Python 无参 `raise` 只能在 `except` 块内使用；循环重试后要抛出累计的异常对象，必须显式引用（`raise last_error`），不能用裸 `raise`。
