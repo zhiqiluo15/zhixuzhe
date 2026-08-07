@@ -26,10 +26,11 @@ class FileManageSkill(Skill):
         "整理文件", "文件整理", "清理文件", "清理临时文件",
         "清理日志", "清理缓存", "清理目录",
         "归档文件", "文件管理", "整理一下文件", "整理下文件",
+        "整理日志", "整理一下日志",
         # 英文
         "batch rename", "rename files", "bulk rename",
         "organize files", "organize project files",
-        "clean up files", "clean up temp files", "cleanup",
+        "clean up files", "clean up temp files", "clean up log files", "cleanup",
         "batch move", "batch delete", "batch replace",
         "file management", "tidy files", "tidy up",
         "manage files", "bulk files",

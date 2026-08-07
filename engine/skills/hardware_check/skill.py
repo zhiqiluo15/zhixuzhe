@@ -22,9 +22,11 @@ class HardwareCheckSkill(Skill):
         "硬件信息", "检测配置", "检查配置",
         "能微调吗", "能不能微调", "微调可行",
         "显存够不够", "显存够吗",
+        "检查GPU", "GPU是否可用", "硬件诊断",
         # 英文
         "detect host", "check hardware", "hardware check",
         "system info", "gpu check", "can i run qlora",
+        "hardware diagnostics",
     ]
 
     def plan(self, goal: str) -> list[str]:

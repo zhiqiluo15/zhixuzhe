@@ -912,3 +912,32 @@
   1. Windows 路径分隔符——`Path.relative_to()` 输出反斜杠（`tmp\old.txt`），与 glob 输入的正斜杠不一致导致断言失败，统一 `as_posix()` 修复。
   2. 超长 `python -c` 命令行传中文参数可能编码损坏导致 Router 误判为不命中——验证脚本宜拆分或改用英文意图。
 - **6 技能规划收官**：hardware_check / web_research_summarize / code_search_explore / data_analysis_visual / file_manage_batch 已全部落地，剩余 environment_check（hardware_check 扩展）作为远期优化项。
+
+---
+
+## 2026-08-07（六技能架构体检）
+
+### 体检背景
+- 6 个技能、11 个工具、核心引擎全部到位后，做一次全链路健康体检，确认每个结构能正常行使职责。
+
+### 体检维度与结果
+| 维度 | 检查内容 | 结果 |
+| --- | --- | --- |
+| 模块加载 | 11 工具、5 技能、11 核心模块、大脑/配置/日志/Web/工厂等 34 个单元 | **34/34 全部加载正常** |
+| 单元测试 | engine/tests 下 79 个用例 | **79/79 全绿** |
+| 工具注册 | detect_host / verify_gpu / run_shell / read_file / write_file / web_fetch / web_search / search_file / read_data / list_files / batch_files | 11/11 已注册，参数 schema 完整 |
+| 技能注册 | WebResearch(22 triggers) / CodeSearch(34) / DataAnalysis(30) / FileManage(38) / HardwareCheck(29) | 5/5 已注册，均含 3 步 plan |
+| Router 路由 | 21 个典型意图覆盖 5 技能 + 无意图 | 修复前 19/21，补齐触发词后 **21/21 全命中** |
+
+### P2 修复：触发词覆盖率缺口
+体检时 Router 发现 5 个触发词缺口（用户常用表达未命中），已补齐：
+- `code_search_explore`：+「源码搜索」（匹配"源码搜索class XXX"类意图）
+- `file_manage_batch`：+「整理日志」「整理一下日志」「clean up log files」（清理日志场景）
+- `hardware_check`：+「检查GPU」「GPU是否可用」「硬件诊断」「hardware diagnostics」（GPU检测常用口语）
+
+### 架构现状总评
+- **状态：健康，可投入使用。**
+- 工具层（手脚）：11 个工具覆盖系统检测/文件IO/网络/代码搜索/数据分析/批量文件管理，功能闭环。
+- 技能层（罐装计划）：5 个技能均遵循 "3 步最佳实践" 模式，Router 首匹配即可跳过 LLM 即兴规划，省 API + 保稳定。
+- 引擎层：ReAct 循环 / TaskRunner / HistoryStore / MemoryManager / Recorder / Profile / Taxonomy 全部可用。
+- 下阶段可推进项：①接入真实 DeepSeek API 端到端跑完整对话 ②写一个 SkillChain 串联 Demo（如 web_research → data_analysis） ③验证记忆沉淀闭环（Recorder → 经验写入 → 下次检索命中）
