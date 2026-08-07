@@ -670,3 +670,22 @@
   2. 启动打印中的 `⚠️` 替换为普通文本 `[!]`，GBK 下显示也干净。
 - **排查发现**：全项目生产代码仅 [web_server.py](engine/web_server.py) 启动路径有 emoji print；orchestrator 的 `✅` 在 web 模式走 callback 不进 stdout，CLI 模式走 PowerShell（UTF-8），均不受影响。测试文件的 emoji print 不参与启动。
 - **验证**：`PYTHONIOENCODING=gbk` 模拟 cmd 环境——单点 print emoji 不崩溃；服务正常启动并响应 `/status`；测试套件 20/20 全绿。
+
+---
+
+### 网页填 API Key 提示"没网络"排查与加固（2026-08-07）
+
+- **现象**：Web 端填 API Key 点确认后提示"网络错误: Failed to fetch"（前端 catch 分支），而非可读的错误文案。
+- **排查过程（先证伪再定位）**：
+  1. 用 http.client 完整模拟浏览器流程（同源 Origin + session cookie）→ 后端 CORS/Origin/Session 校验逻辑全部正确：成功路径 200、无 cookie 403、恶意 Origin 403。
+  2. 验证 `create_agent` 三种 key（合法格式/占位符/空）→ 只抛 `ValueError`（被 `_try_init_agent` 捕获转 500），无其他异常。
+  3. 验证 `HistoryStore.load` 跳过损坏行、`latest_session` 过滤 0 字节 → 会话恢复不会崩。
+  4. **结论**：后端校验逻辑无 bug，"网络错误" = `fetch()` 被拒 = 连接被掐断（服务端异常击穿 handler 线程）或浏览器侧问题（旧页面缓存/服务未运行），而非真正的网络故障。
+- **三处真实缺陷修复**（均会导致连接被静默掐断 → 前端误报"网络错误"）：
+  1. **`_try_init_agent` 异常兜底**（[web_server.py](engine/web_server.py)）：import `engine.config`/`engine.log` 和 `init_logging()` 原在 try 块**外**，`create_agent` 也只捕 `ValueError`——任何意外异常直接击穿请求线程，连接被掐断。现整体包进 try，`except Exception` 统一转为可读错误（记录日志 + 写入 `_agent_error`）。
+  2. **`/setup` 写 .env 保护**（[web_server.py](engine/web_server.py)）：`.env` 读写（可能因文件锁/杀软占用失败）、`reset_agent`、`get_agent` 全程 try/except，失败返回 500 + 具体错误而非断连。
+  3. **页面禁止缓存**（[web_server.py](engine/web_server.py)）：`_serve_page` 加 `Cache-Control: no-store`——浏览器缓存旧版 HTML/JS 会导致 session cookie 不刷新、绕过校验流程，产生"网络错误"假象。
+- **前端健壮性**（[index.html](engine/web/index.html)）：`submitSetup` 改为先 `resp.text()` 再 `JSON.parse`，非 JSON 响应（代理/杀软拦截页）不再误报"网络错误"；catch 文案追加"按 Ctrl+F5 强制刷新后重试"提示。
+- **端到端验证**：空 `.env` 启动服务 → GET / 下发 session ✓ → /status 未就绪 ✓ → POST /setup（合法格式 key）→ **200 {tools: 7, skills: 2}** ✓ → 无 cookie 403 ✓ → 恶意 Origin 403 ✓。
+- **环境提示**：调试期间 `.env` 曾被测试脚本写入假 key（含 `test` 字样触发占位符检测 → 设置报"占位符值"），现已清空为 `DEEPSEEK_API_KEY=`，用户需在网页重新填入真实 Key。
+- **排查经验**：Web 端"网络错误"不等于断网——`fetch()` 拒绝仅发生在连接级失败（服务未运行/连接被掐断/CORS 违规）。服务端必须保证任何异常路径都返回 JSON 错误响应，否则前端只能看到误导性的"网络错误"。

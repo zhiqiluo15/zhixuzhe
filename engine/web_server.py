@@ -20,6 +20,7 @@ API:
 """
 
 import json
+import logging
 import os
 import secrets
 import sys
@@ -28,6 +29,8 @@ import uuid
 from http.cookies import SimpleCookie
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+
+logger = logging.getLogger("zhixuzhe.web_server")
 
 # 项目根
 ROOT = Path(__file__).resolve().parent.parent
@@ -50,23 +53,29 @@ def _try_init_agent():
 
     sys.path.insert(0, str(ROOT))
 
-    from engine.config import config
-    from engine.log import init_logging
-
-    init_logging(
-        log_dir=config.logging.dir,
-        level=config.logging.level,
-        fmt=config.logging.format,
-        max_bytes=config.logging.file_max_bytes,
-        backup_count=config.logging.file_backup_count,
-    )
-
-    from engine.factory import create_agent
-
     try:
+        from engine.config import config
+        from engine.log import init_logging
+
+        init_logging(
+            log_dir=config.logging.dir,
+            level=config.logging.level,
+            fmt=config.logging.format,
+            max_bytes=config.logging.file_max_bytes,
+            backup_count=config.logging.file_backup_count,
+        )
+
+        from engine.factory import create_agent
+
         _agent = create_agent(ROOT)
     except ValueError as e:
         _agent_error = str(e)
+        return None
+    except Exception as e:
+        # 任何意外异常都转化为可读错误，不能击穿请求线程
+        # （否则连接被掐断，前端 fetch 拒绝 → 显示"网络错误"）
+        logger.error(f"Agent 初始化失败（{type(e).__name__}）: {e}")
+        _agent_error = f"Agent 初始化失败（{type(e).__name__}）: {e}"
         return None
 
     _agent_error = None
@@ -311,27 +320,33 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             self._error(400, "API Key 不能为空")
             return
 
-        # 写入 .env 文件
-        env_path = ROOT / ".env"
-        existing = {}
-        if env_path.exists():
-            for line in env_path.read_text(encoding="utf-8").splitlines():
-                if "=" in line and not line.strip().startswith("#"):
-                    k, _, v = line.partition("=")
-                    existing[k.strip()] = v.strip()
+        try:
+            # 写入 .env 文件（可能因文件锁/权限失败，必须保护，否则连接被掐断）
+            env_path = ROOT / ".env"
+            existing = {}
+            if env_path.exists():
+                for line in env_path.read_text(encoding="utf-8").splitlines():
+                    if "=" in line and not line.strip().startswith("#"):
+                        k, _, v = line.partition("=")
+                        existing[k.strip()] = v.strip()
 
-        existing["DEEPSEEK_API_KEY"] = api_key
-        lines = [f"{k}={v}" for k, v in existing.items()]
-        env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            existing["DEEPSEEK_API_KEY"] = api_key
+            lines = [f"{k}={v}" for k, v in existing.items()]
+            env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-        # 重新加载配置（让新的 API Key 生效）
-        os.environ["DEEPSEEK_API_KEY"] = api_key
+            # 重新加载配置（让新的 API Key 生效）
+            os.environ["DEEPSEEK_API_KEY"] = api_key
 
-        # 重置 Agent 状态
-        reset_agent()
+            # 重置 Agent 状态
+            reset_agent()
 
-        # 尝试初始化
-        agent = get_agent()
+            # 尝试初始化
+            agent = get_agent()
+        except Exception as e:
+            logger.error(f"/setup 处理失败（{type(e).__name__}）: {e}")
+            self._error(500, f"设置过程中发生错误（{type(e).__name__}）: {e}")
+            return
+
         if agent is not None:
             self._ok()
             self.wfile.write(json.dumps({
@@ -380,6 +395,8 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
         if not session_id:
             self._set_session_cookie(secrets.token_urlsafe(32))
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        # 禁止缓存页面：旧版 JS/HTML 会绕过 session 校验流程，造成"网络错误"假象
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(_load_page().encode())
 

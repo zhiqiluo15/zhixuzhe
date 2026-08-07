@@ -471,7 +471,14 @@ async function submitSetup() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key }),
     });
-    const data = await resp.json();
+    const text = await resp.text();
+    let data = {};
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      // 非 JSON 响应（如代理/杀软拦截页），避免误报"网络错误"
+      data = { error: text || '服务响应无法解析' };
+    }
 
     if (resp.ok) {
       setupStatus.textContent = `设置成功！（${data.tools} 工具，${data.skills} 技能）`;
@@ -486,7 +493,7 @@ async function submitSetup() {
     }
   } catch (e) {
     setupError.style.display = 'block';
-    setupError.textContent = '网络错误: ' + e.message;
+    setupError.textContent = '网络错误: ' + e.message + '（若反复出现，请按 Ctrl+F5 强制刷新后重试）';
     setupStatus.textContent = '';
   }
 }
