@@ -569,3 +569,28 @@
   1. **复发 bug 要修根因**：上轮 P0-1 只清残留未修 `latest_session`，必然复发。本次修根因（过滤空文件 + save 跳过空写入）。
   2. **CHANGELOG 声称的"闭环"要用调用链验证**：P1-1 经验沉淀号称闭合但无调用路径，纯属文档负债。
   3. **dead code 要么接入要么删除**：SkillChain 搁置即腐烂（封装泄漏漏修）。接入时让 TaskRunner 暴露公共方法，不访问私有。
+
+### 新增 web_search 工具 + web_research_summarize 技能（2026-08-07）
+
+- **动机**：按用户提出的 6 个技能规划，从最高优先级开始实现。web_research_summarize 是首个"工具链完整、零新依赖、能立即验证 SkillChain"的技能。
+- **发现的缺口**：factory.py 注册了 6 个工具，但 CHANGELOG 和用户规划都假设存在 `web_search`，**实际从未实现**——只有 `web_fetch`（获取单个 URL），无法"搜索"。必须先补 web_search 工具。
+- **web_search 工具**（[web_search.py](engine/tools/web_search.py)）：
+  - 零依赖 Bing HTML 搜索（requests + 正则解析），无需 API Key
+  - 最初尝试 DuckDuckGo HTML/lite 端点，当前网络环境连接超时，改用 Bing（连通性测试确认可达）
+  - 返回结构化结果：编号 + 标题 + URL + 摘要，用 `html.unescape()` 统一解码 HTML 实体
+  - Bing 结果在 `<li class="b_algo">` 块中，正则解析标题（`<h2><a>`）+ URL（href）+ 摘要（b_caption/p）
+  - 参数：query（必填）、max_results（默认 8，上限 20）、timeout
+- **web_research_summarize 技能**（[web_research/skill.py](engine/skills/web_research/skill.py)）：
+  - 三步计划：web_search 搜索 → web_fetch 抓取 3-5 个最相关页面 → 综合产出结构化报告（核心结论+关键事实+来源对比+参考URL）
+  - 15 个中英文触发词：调研/搜索一下/查一下/搜一下/research/search for/look up 等
+  - 第三步要求 Brain 明确标注"信息不足未能确认"的部分，避免幻觉
+- **Router 冲突修复**（注册顺序 + 触发词精度）：
+  - 问题：hardware_check 先注册，"QLoRA"作为独立触发词太宽泛，"搜索一下 QLoRA 论文"误匹配到硬件检测
+  - 修复：
+    1. 技能注册顺序调整：web_research 先注册（含显式动作词"搜索/查/调研"的技能优先），hardware_check 后注册
+    2. hardware_check 的 "QLoRA" → "QLoRA微调"/"跑QLoRA"/"QLoRA可行"/"QLoRA条件"，"显卡"→"显卡配置"，新增"显存够不够/显存够吗/can i run qlora"
+    3. 新增原则：**含显式意图动词（搜索/查/调研）的触发词技能优先注册，领域名词技能在后；单名词触发词须有足够领域特异性**
+- **factory.py 更新**：注册 web_search 工具（第 7 个工具）+ WebResearchSkill（第 2 个技能）
+- **验证**：web_search 实搜索测 DeepSeek API 文档、QLoRA 微调教程中文结果正常；Router 15 个测试用例全通过（7 个命中 web_research、5 个命中 hardware_check、3 个不命中）；测试 20/20 全绿；无空会话文件残留。
+- **经验沉淀机制验证**：本次任务是 P1-1 经验反思的首次实战——_reflect_experience 在任务完成后自动触发，但因当前无 API Key 实际调用会失败（不阻断主流程），待用户提供有效 Key 后即可运行。
+- **后续**：code_search_explore（需先新增 search_file/grep 工具）、data_analysis_visual、file_manage_batch，以及 hardware_check → environment_check 扩展（合并原规划的 environment_setup_check）。

@@ -17,12 +17,14 @@ class HardwareCheckSkill(Skill):
     triggers = [
         # 中文
         "硬件检测", "检查硬件", "硬件配置", "电脑配置",
-        "QLoRA", "微调条件", "GPU检测", "显卡",
+        "QLoRA微调", "跑QLoRA", "QLoRA可行", "QLoRA条件",
+        "微调条件", "GPU检测", "显卡配置",
         "硬件信息", "检测配置", "检查配置",
         "能微调吗", "能不能微调", "微调可行",
+        "显存够不够", "显存够吗",
         # 英文
         "detect host", "check hardware", "hardware check",
-        "system info", "gpu check",
+        "system info", "gpu check", "can i run qlora",
     ]
 
     def plan(self, goal: str) -> list[str]:

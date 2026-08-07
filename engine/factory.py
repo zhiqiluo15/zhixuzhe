@@ -38,6 +38,7 @@ def create_agent(project_root: Path) -> Agent:
     from engine.tools.shell import run_shell
     from engine.tools.file_io import read_file, write_file
     from engine.tools.web_fetch import web_fetch
+    from engine.tools.web_search import web_search
 
     tools = ToolRegistry()
     tools.register(Tool(
@@ -126,12 +127,35 @@ def create_agent(project_root: Path) -> Agent:
             "required": ["url"],
         },
     ))
+    tools.register(Tool(
+        name="web_search",
+        description="搜索网页，返回标题+URL+摘要的结果列表。用于查找在线资料、官方文档、技术方案等不知道具体URL时。",
+        func=web_search,
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "搜索关键词",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "最多返回几条结果（默认 8，上限 20）",
+                },
+            },
+            "required": ["query"],
+        },
+    ))
 
     # ── 技能 ──
     from engine.skills.registry import SkillRegistry
     from engine.skills.hardware_check.skill import HardwareCheckSkill
+    from engine.skills.web_research.skill import WebResearchSkill
 
     skills = SkillRegistry()
+    # 注册顺序影响 Router 首匹配：含显式动作词（搜索/查/调研）的技能优先，
+    # 领域名词技能（硬件/代码/数据）在后，避免"搜索 QLoRA 论文"误匹配硬件检测
+    skills.register(WebResearchSkill())
     skills.register(HardwareCheckSkill())
 
     # ── 记忆 ──

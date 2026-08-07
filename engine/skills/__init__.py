@@ -5,7 +5,8 @@
 
 当前结构：
 - base.py / registry.py: 技能基础设施
-- hardware_check/: 硬件检测 + QLoRA 判断
+- hardware_check/: 硬件检测 + QLoRA 可行性判断
+- web_research/: 联网搜索 + 多源抓取 + 结构化调研
 """
 from engine.skills.base import Skill
 from engine.skills.registry import SkillRegistry
