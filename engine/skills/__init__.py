@@ -9,6 +9,7 @@
 - web_research/: 联网搜索 + 多源抓取 + 结构化调研
 - code_explore/: 项目代码库搜索 + 精读 + 结构化代码调研
 - data_analysis/: 数据文件读取 + 统计洞察 + 结构化分析报告
+- file_manage/: 批量文件管理（列出/重命名/移动/复制/删除/内容替换）
 """
 from engine.skills.base import Skill
 from engine.skills.registry import SkillRegistry

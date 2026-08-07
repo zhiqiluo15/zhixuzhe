@@ -890,3 +890,25 @@
 - **测试**：新增 [test_read_data.py](engine/tests/test_read_data.py) 16 个用例（工具 11 个：CSV 统计/数值识别/JSON 数组/JSON 对象/JSONL/TEXT/越界/不存在/二进制/格式不支持/format 参数；路由 5 个：中英文命中/四技能互不抢占/分析一下代码不被 data 抢占/无关不命中）。**总计 54/54 全绿**。
 - **冒烟验证**：真实会话文件 `read_data('memory/conversations/*.jsonl')` 正确解析 46 条记录、role/content 两列统计准确；Router 四技能各归其位。
 - **后续**：`file_manage_batch` 技能（基于现有 file_io/run_shell 即可），以及 hardware_check → environment_check 扩展。
+
+---
+
+### 新增文件管理工具 + file_manage_batch 技能（2026-08-07）
+
+- **动机**：6 技能规划收官技能。批量文件操作是破坏性动作（重命名/移动/删除），若靠 run_shell 让 Brain 写 PowerShell 批量命令，不安全也不可控——需要**工具层强制的安全边界**：项目根内 + glob 精确匹配 + dry-run 预览 + HITL 确认。
+- **list_files 工具**（[file_manage.py](engine/tools/file_manage.py)）：只读，列出目录/glob 匹配文件（名称+大小+修改时间），支持递归，跳过 `.git`/`__pycache__` 等忽略目录，越界拒绝。
+- **batch_files 工具**（同上）：批量操作五合一——`rename`（文件名文本替换）/ `move` / `copy` / `delete` / `replace`（内容替换）。
+  - **默认 dry_run=True 只预览**，输出改动清单后提示"确认后以 dry_run=False 执行"——危险操作先预览后执行的机制在工具层内置；
+  - 逐项防护：rename 无变化/目标已存在跳过、replace 无匹配/二进制跳过、move/copy 目标冲突跳过、单文件失败不中断整体（逐项汇总错误）；
+  - 输出统一正斜杠相对路径（`rel.as_posix()`），与 glob 输入一致，跨平台可读。
+- **file_manage_batch 技能**（[file_manage/skill.py](engine/skills/file_manage/skill.py)）：
+  - 三步计划：list_files 查看文件清单 → batch_files 先 dry_run 预览再确认执行（delete 必须预览→确认）→ 产出操作报告（操作类型/文件数/前后对比/跳过异常项/所需信息）。
+  - 触发词：中文批量动作词（批量重命名/批量改名/批量移动/批量删除/批量替换等）+ 文件整理词（整理文件/清理文件/清理日志/清理缓存/归档文件等）+ 英文（batch rename / clean up files / organize files 等）；不带裸"整理/清理"（避免与代码/数据意图混淆），带冠词变体（"organize the project files"）由 LLM 即兴规划兜底。
+- **HITL 扩展**：[config.yaml](config.yaml) `confirm_tools` 从 `[run_shell]` 扩展为 `[run_shell, batch_files]`——批量破坏性操作全部走人审，配置驱动、factory 自动生效。
+- **factory.py 更新**：注册 list_files（第 10 个工具）+ batch_files（第 11 个工具）；注册 FileManageSkill（第 5 个技能）。注册顺序：web → code → data → file_manage → hardware。
+- **测试**：新增 [test_file_manage.py](engine/tests/test_file_manage.py) 25 个用例（list_files 5 个：列出/glob/递归/越界/不存在；batch_files 14 个：rename dry-run 与执行/无变化跳过/move/copy/delete dry-run 与执行/replace/无匹配/二进制/无效 action/缺参/越界 target/无匹配；路由 4 个 + 无关不命中）。**总计 79/79 全绿**。
+- **冒烟验证**：`list_files('engine/tools', '*.py')` 列出 11 个工具文件；`batch_files('rename', '*.md', ...)` dry_run 预览正确（README.md → GUIDE.md，CHANGELOG 无变化跳过），未触碰生产文件。
+- **踩坑记录**：
+  1. Windows 路径分隔符——`Path.relative_to()` 输出反斜杠（`tmp\old.txt`），与 glob 输入的正斜杠不一致导致断言失败，统一 `as_posix()` 修复。
+  2. 超长 `python -c` 命令行传中文参数可能编码损坏导致 Router 误判为不命中——验证脚本宜拆分或改用英文意图。
+- **6 技能规划收官**：hardware_check / web_research_summarize / code_search_explore / data_analysis_visual / file_manage_batch 已全部落地，剩余 environment_check（hardware_check 扩展）作为远期优化项。

@@ -15,7 +15,7 @@ model:
 agent:
   max_tool_rounds: 10         # 普通对话 ReAct 循环最大工具调用轮次
   max_tool_output_chars: 32000 # 单次工具输出截断长度
-  confirm_tools: [run_shell]   # 需要 HITL 确认的工具
+  confirm_tools: [run_shell, batch_files]   # 需要 HITL 确认的工具（batch_files 是批量破坏性操作，必须人审）
   auto_task: true             # 普通对话中让 Brain 判断是否自动升级为任务模式（多一步轻量 API 调用）
 
 # ── 任务模式 ──

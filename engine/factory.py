@@ -41,6 +41,7 @@ def create_agent(project_root: Path) -> Agent:
     from engine.tools.web_search import web_search
     from engine.tools.search_file import search_file
     from engine.tools.read_data import read_data
+    from engine.tools.file_manage import list_files, batch_files
 
     tools = ToolRegistry()
     tools.register(Tool(
@@ -198,6 +199,63 @@ def create_agent(project_root: Path) -> Agent:
             "required": ["filepath"],
         },
     ))
+    tools.register(Tool(
+        name="list_files",
+        description="列出目录/glob 匹配的文件清单（名称+大小+修改时间）。只读，用于了解项目文件结构。",
+        func=list_files,
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "起始目录（相对项目根，默认 '.'）",
+                },
+                "pattern": {
+                    "type": "string",
+                    "description": "文件名 glob 过滤，如 '*.log'",
+                },
+                "recursive": {
+                    "type": "boolean",
+                    "description": "是否递归子目录（默认 False）",
+                },
+            },
+        },
+    ))
+    tools.register(Tool(
+        name="batch_files",
+        description="批量文件操作：rename/move/copy/delete/replace。默认 dry_run 预览不执行，确认后传 dry_run=False 实际执行。危险操作需先预览。",
+        func=batch_files,
+        parameters={
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "操作：rename（文件名文本替换）/move/copy/delete/replace（内容替换）",
+                },
+                "pattern": {
+                    "type": "string",
+                    "description": "匹配文件的 glob（相对项目根），如 '*.tmp'、'logs/*.log'",
+                },
+                "target": {
+                    "type": "string",
+                    "description": "move/copy 的目标目录（相对项目根）",
+                },
+                "replace_from": {
+                    "type": "string",
+                    "description": "rename 的文件名替换文本 / replace 的内容查找文本",
+                },
+                "replace_to": {
+                    "type": "string",
+                    "description": "替换后的文本",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "True 预览不执行（默认），False 实际执行",
+                },
+            },
+            "required": ["action", "pattern"],
+        },
+    ))
 
     # ── 技能 ──
     from engine.skills.registry import SkillRegistry
@@ -205,13 +263,15 @@ def create_agent(project_root: Path) -> Agent:
     from engine.skills.web_research.skill import WebResearchSkill
     from engine.skills.code_explore.skill import CodeSearchSkill
     from engine.skills.data_analysis.skill import DataAnalysisSkill
+    from engine.skills.file_manage.skill import FileManageSkill
 
     skills = SkillRegistry()
     # 注册顺序影响 Router 首匹配：含显式动作词（搜索/查/调研）的 web 技能优先，
-    # 代码领域词（代码/源码）次之，数据领域词（数据/表格）再次，领域名词技能（硬件）最后
+    # 代码领域词（代码/源码）次之，数据领域词（数据/表格）再次，文件领域词（文件/批量）再次，领域名词技能（硬件）最后
     skills.register(WebResearchSkill())
     skills.register(CodeSearchSkill())
     skills.register(DataAnalysisSkill())
+    skills.register(FileManageSkill())
     skills.register(HardwareCheckSkill())
 
     # ── 记忆 ──
