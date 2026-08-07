@@ -506,6 +506,21 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             sse_write(event_type, data)
 
         try:
+            # 自动任务模式判断：普通对话入口先让 Brain 轻量判断
+            if agent.should_auto_task(message):
+                sse_write("task_start", {"goal": message, "auto": True})
+
+                def auto_verbose_callback(msg: str) -> None:
+                    sse_write("task_step", {"content": msg})
+
+                response = agent.task_runner.run(
+                    message, verbose=True,
+                    verbose_callback=auto_verbose_callback,
+                    confirm_callback=confirm_callback,
+                )
+                sse_write("task_done", {"content": response})
+                return
+
             response = agent.run(
                 message,
                 stream_callback=stream_callback,

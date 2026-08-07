@@ -7,6 +7,8 @@
 
 from pathlib import Path
 
+import json
+
 from engine.brain.base import Brain, Message
 from engine.tools.registry import ToolRegistry
 from engine.skills.registry import SkillRegistry
@@ -28,6 +30,26 @@ SYSTEM_PROMPT = """你是智序者（zhixuzhe），一个以 DeepSeek 为基座�
 - 回答简洁直接，不啰嗦
 - 能用工具获取的信息就不猜测
 - 不知道就承认，不假装知道"""
+
+# 自动任务模式判断提示词（普通对话入口的轻量判断）
+AUTO_TASK_JUDGE = """你是任务复杂度判断器。判断用户请求是否需要进入"任务模式"执行。
+
+任务模式 = 智序者自主规划多步骤、逐步执行（可能调用多个工具：网页搜索、执行命令、读写文件、抓取网页等），最后综合结论。
+普通对话 = 直接回答，一问一答。
+
+需要任务模式（输出 need_task: true）：
+- 请求需要多步骤才能完成（调研、对比、分析、搭建、学习、排查等）
+- 需要调用多个工具或需要真实外部数据
+- 目标型请求（"帮我查一下...并总结"、"对比 A 和 B"、"搭建一个..."）
+
+不需要任务模式（need_task: false）：
+- 简单问答、闲聊、寒暄、常识问题
+- 一句话能回答的问题
+
+只输出 JSON，不要任何其他文字或 markdown 包裹：
+{"need_task": true}
+或
+{"need_task": false}"""
 
 
 def _show_help() -> None:
@@ -108,6 +130,42 @@ class Agent:
             answer = input(f"\n  ⚠️  工具调用: {tool_name}({args_str})\n  → 执行? [y/N] ").strip().lower()
             return answer in ("y", "yes")
         except (EOFError, KeyboardInterrupt):
+            return False
+
+    # ── 自动任务模式判断 ──
+
+    def should_auto_task(self, user_input: str) -> bool:
+        """判断普通对话输入是否需要自动升级为任务模式。
+
+        用 Brain 做一次轻量判断（不带工具、短提示词），输出 JSON。
+        判断失败或配置关闭时安全降级为普通对话（返回 False），不阻塞。
+        """
+        if not config.agent.auto_task:
+            return False
+        if not self.task_runner:
+            return False
+
+        try:
+            messages = [
+                Message(role="system", content=AUTO_TASK_JUDGE),
+                Message(role="user", content=user_input),
+            ]
+            response = self.brain.think(messages)
+            text = response.content.strip()
+            # 兼容 markdown 代码块包裹
+            if text.startswith("```"):
+                text = text.strip("`")
+                if text.lower().startswith("json"):
+                    text = text[4:].strip()
+            data = json.loads(text)
+            need = bool(data.get("need_task", False))
+            logger.debug(f"自动任务判断: {need} ← {user_input[:40]}...")
+            return need
+        except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
+            logger.debug(f"自动任务判断失败，降级为普通对话: {e}")
+            return False
+        except Exception as e:
+            logger.warning(f"自动任务判断异常，降级为普通对话: {e}")
             return False
 
     # ── 核心循环 ──
@@ -398,4 +456,22 @@ class Agent:
                 continue
 
             # 普通对话（已在 run() 内流式输出，这里不重复打印）
+            # 先判断是否自动升级为任务模式
+            if self.should_auto_task(user_input):
+                logger.info(f"自动升级为任务模式: {user_input[:50]}...")
+                print("\n" + "═" * 44)
+                print("  🔧 检测到该请求需要多步骤执行，智序者已自动进入任务模式")
+                print("  📋 将自主规划步骤、逐步执行（可能调用多个工具），完成后给出综合结论")
+                print("═" * 44 + "\n")
+                response = self.task_runner.run(
+                    user_input,
+                    confirm_callback=self._hitl_confirm,
+                )
+                print(f"\n═══ 最终结论 ═══\n\n{response}\n")
+                self.history.append(Message(role="user", content=user_input))
+                self.history.append(Message(role="assistant", content=response))
+                if self.history_store:
+                    self.history_store.save(self.history)
+                continue
+
             self.run(user_input)

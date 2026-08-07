@@ -861,7 +861,11 @@ async function send() {
 
           } else if (data.type === 'task_start') {
             hideThinking();
-            addMessage('system', `🔧 **任务模式执行中**\n**目标：** ${data.goal}\n智序者将自主规划并逐步执行，请稍候...`);
+            if (data.auto) {
+              addMessage('system', `🤖 **智序者已自动进入任务模式**：检测到该请求需要多步骤执行，将自主规划、逐步执行（可能调用多个工具）后给出综合结论。\n\n**目标：** ${data.goal}\n\n执行中，请稍候...`);
+            } else {
+              addMessage('system', `🔧 **任务模式执行中**\n**目标：** ${data.goal}\n智序者将自主规划并逐步执行，请稍候...`);
+            }
 
           } else if (data.type === 'task_step') {
             addMessage('system', data.content);

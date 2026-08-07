@@ -528,6 +528,59 @@ def test_history_reset_creates_new_file(tmp_path):
 
 
 # ═══════════════════════════════════════════
+# 自动任务模式判断测试
+# ═══════════════════════════════════════════
+
+def _make_agent_with_runner(brain: MockBrain, tmp_path) -> Agent:
+    """构造带 TaskRunner 的 Agent（should_auto_task 需要 task_runner）"""
+    tools = build_tools()
+    recorder = Recorder(root=tmp_path)
+    return Agent(brain=brain, tools=tools, recorder=recorder)
+
+
+def test_should_auto_task_true(tmp_path):
+    """should_auto_task：Brain 判定需要任务模式 → True"""
+    print("\n" + "=" * 50)
+    print("测试 17: should_auto_task 命中任务模式")
+    brain = MockBrain([
+        Message(role="assistant", content='{"need_task": true}'),
+    ])
+    agent = _make_agent_with_runner(brain, tmp_path)
+
+    result = agent.should_auto_task("帮我查一下最新的 Python 异步框架并对比")
+    assert result is True
+    print("  ✅ 通过：复杂目标判定为需要任务模式")
+
+
+def test_should_auto_task_false(tmp_path):
+    """should_auto_task：Brain 判定不需要 → False"""
+    print("\n" + "=" * 50)
+    print("测试 18: should_auto_task 不需要任务模式")
+    brain = MockBrain([
+        Message(role="assistant", content='{"need_task": false}'),
+    ])
+    agent = _make_agent_with_runner(brain, tmp_path)
+
+    result = agent.should_auto_task("你好")
+    assert result is False
+    print("  ✅ 通过：简单问候不进入任务模式")
+
+
+def test_should_auto_task_fallback(tmp_path):
+    """should_auto_task：Brain 返回无效 JSON → 安全降级 False"""
+    print("\n" + "=" * 50)
+    print("测试 19: should_auto_task 解析失败降级")
+    brain = MockBrain([
+        Message(role="assistant", content="我想想...这不是 JSON"),
+    ])
+    agent = _make_agent_with_runner(brain, tmp_path)
+
+    result = agent.should_auto_task("随便说点什么")
+    assert result is False
+    print("  ✅ 通过：判断失败安全降级为普通对话")
+
+
+# ═══════════════════════════════════════════
 # 运行所有测试
 # ═══════════════════════════════════════════
 
@@ -554,6 +607,9 @@ if __name__ == "__main__":
         test_history_latest_session_picks_newest,
         test_history_no_prior_session,
         test_history_reset_creates_new_file,
+        test_should_auto_task_true,
+        test_should_auto_task_false,
+        test_should_auto_task_fallback,
     ]
 
     for test in tests:

@@ -753,6 +753,23 @@
 
 ---
 
+### 自动任务模式判断（2026-08-07）
+
+- **动机**：用户要求"智序者自己进入任务模式也要显性提示"。排查发现此前任务模式**只存在用户显式触发**（CLI `task`/`chain`/`learn` 命令、Web「任务」按钮），普通对话即使请求复杂也不会自动升级。确认用户意图为"用 Brain 判断复杂度"。
+- **设计**：普通对话入口先做一次**轻量意图判断**——不带工具、短提示词（`AUTO_TASK_JUDGE`），Brain 输出 `{"need_task": true/false}`。命中则自动升级为任务模式并显性提示；未命中走原普通对话；判断失败安全降级（不阻塞）。
+- **改动**：
+  - [config.yaml](config.yaml)：`agent.auto_task: true` 开关，可关闭自动升级（关闭后恢复纯显式触发）。
+  - [config.py](engine/config.py)：`AgentConfig` 新增 `auto_task: bool = True`。
+  - [loop.py](engine/core/loop.py)：新增 `AUTO_TASK_JUDGE` 判断提示词；`Agent.should_auto_task(user_input)` 方法（JSON 解析兼容 markdown 包裹，失败捕获降级）；CLI 普通对话分支在 `run()` 前先判断，命中则打印横幅（"检测到该请求需要多步骤执行，智序者已自动进入任务模式"）+ 走 `task_runner.run` + 结果入历史。
+  - [web_server.py](engine/web_server.py)：`_handle_chat` 在普通对话前先 `agent.should_auto_task(message)`，命中则发 `task_start {auto: true}` → `task_runner.run`（verbose 走 `task_step` 事件）→ `task_done`。
+  - [index.html](engine/web/index.html)：`task_start` 事件区分 auto 标识——自动进入显示"🤖 智序者已自动进入任务模式（检测到该请求需要多步骤执行）"，手动任务显示"🔧 任务模式执行中"。
+  - [test_react.py](engine/tests/test_react.py)：新增 3 个测试（命中 True / 简单问候 False / 无效 JSON 降级 False）。
+- **验证**：测试 23/23 全绿（新增 3 个）；配置 `auto_task=True` 正确加载。
+- **代价**：普通对话每次多一次轻量 API 调用（不带工具、仅几 token 输出，成本极低）。可通过 `agent.auto_task: false` 关闭。
+- **教训**：功能设计时要区分"用户显式触发"和"系统自动判断"两条路径，二者提示语、成本、安全边界都不同；自动路径必须带安全降级（判断失败不阻塞主流程）。
+
+---
+
 ### 工具调用上限提升 + 任务模式显性提示（2026-08-07）
 
 - **动机**：排查发现工具调用次数少的原因之一是 `max_tool_rounds: 5` 过严——日记中 3 次 `[已达到最大工具调用轮次]` 截断（uv 学习任务步骤 4/5 未执行）。同时用户反馈任务模式缺少显性提示，进入时无感知。

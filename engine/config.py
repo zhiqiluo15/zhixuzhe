@@ -148,9 +148,10 @@ class ModelConfig:
 
 @dataclass
 class AgentConfig:
-    max_tool_rounds: int = 5
+    max_tool_rounds: int = 10
     max_tool_output_chars: int = 32000
     confirm_tools: list[str] = field(default_factory=lambda: ["run_shell"])
+    auto_task: bool = True
 
 
 @dataclass
