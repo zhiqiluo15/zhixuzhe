@@ -1,0 +1,276 @@
+# 智序者知识分类树
+# 每个叶子节点代表一个可学习的计算机知识主题。
+# 新增主题只需在此文件添加一条记录，前端面板自动出现对应卡片。
+#
+# 字段说明：
+#   id          — 唯一标识（用于 API 路由和数据关联）
+#   name        — 显示名称
+#   parent      — 所属语言/领域（用于能力档案的评级关联）
+#   search      — GitHub 搜索提示词（自动拼接 site:github.com + best practices 质量信号）
+#   repo_hint   — 可选：直接推荐的权威仓库
+#   difficulty  — 难度：beginner / intermediate / advanced
+
+categories:
+  - id: programming-languages
+    name: 编程语言
+    icon: code
+    children:
+      - id: async-python
+        name: 异步编程
+        parent: Python
+        search: "python asyncio best practices production patterns"
+        repo_hint: "python/cpython/tree/main/Lib/asyncio"
+        difficulty: intermediate
+
+      - id: typing-python
+        name: 类型系统
+        parent: Python
+        search: "python typing best practices mypy pydantic type hints"
+        difficulty: intermediate
+
+      - id: concurrency-python
+        name: 并发模型
+        parent: Python
+        search: "python concurrency threading multiprocessing GIL best practices"
+        difficulty: advanced
+
+      - id: web-frameworks-python
+        name: Web 框架
+        parent: Python
+        search: "python FastAPI Django best practices production architecture"
+        difficulty: intermediate
+
+      - id: data-processing-python
+        name: 数据处理
+        parent: Python
+        search: "python pandas polars numpy data processing best practices"
+        difficulty: intermediate
+
+      - id: performance-python
+        name: 性能优化
+        parent: Python
+        search: "python performance optimization profiling Cython memory best practices"
+        difficulty: advanced
+
+      - id: packaging-python
+        name: 包管理
+        parent: Python
+        search: "python pip poetry uv packaging best practices"
+        difficulty: beginner
+
+      - id: testing-python
+        name: 测试
+        parent: Python
+        search: "python pytest testing best practices mock fixtures patterns"
+        difficulty: beginner
+
+  - id: systems-languages
+    name: 系统编程语言
+    icon: cpu
+    children:
+      - id: rust-ownership
+        name: 所有权与借用
+        parent: Rust
+        search: "rust ownership borrowing patterns best practices"
+        difficulty: intermediate
+
+      - id: rust-error-handling
+        name: 错误处理
+        parent: Rust
+        search: "rust error handling Result anyhow thiserror best practices"
+        difficulty: intermediate
+
+      - id: rust-async
+        name: 异步运行时
+        parent: Rust
+        search: "rust tokio async runtime patterns best practices"
+        difficulty: advanced
+
+      - id: rust-concurrency
+        name: 并发安全
+        parent: Rust
+        search: "rust Send Sync Arc concurrency patterns best practices"
+        difficulty: advanced
+
+      - id: go-concurrency
+        name: Go 并发模型
+        parent: Go
+        search: "go goroutine channel concurrency patterns best practices"
+        difficulty: intermediate
+
+      - id: c-performance
+        name: C 性能优化
+        parent: C
+        search: "C performance optimization memory layout SIMD best practices"
+        difficulty: advanced
+
+  - id: system-design
+    name: 系统设计
+    icon: architecture
+    children:
+      - id: distributed-consensus
+        name: 分布式一致性
+        parent: 系统设计
+        search: "distributed consensus RAFT Paxos implementation best practices"
+        difficulty: advanced
+
+      - id: message-queue
+        name: 消息队列
+        parent: 系统设计
+        search: "message queue Kafka NATS RabbitMQ best practices production"
+        difficulty: intermediate
+
+      - id: database-design
+        name: 数据库设计
+        parent: 系统设计
+        search: "database index SQL optimization transaction design best practices"
+        difficulty: intermediate
+
+      - id: microservices
+        name: 微服务
+        parent: 系统设计
+        search: "microservices service discovery gateway circuit breaker best practices"
+        difficulty: advanced
+
+      - id: api-design
+        name: API 设计
+        parent: 系统设计
+        search: "REST gRPC GraphQL API design best practices patterns"
+        difficulty: intermediate
+
+      - id: caching
+        name: 缓存策略
+        parent: 系统设计
+        search: "Redis cache strategy multi-level caching best practices"
+        difficulty: intermediate
+
+  - id: ai-ml
+    name: AI / 机器学习
+    icon: brain
+    children:
+      - id: model-finetuning
+        name: 模型微调
+        parent: AI/ML
+        search: "QLoRA SFT model fine-tuning data engineering best practices"
+        difficulty: advanced
+
+      - id: inference-optimization
+        name: 推理优化
+        parent: AI/ML
+        search: "vLLM inference optimization quantization model serving best practices"
+        difficulty: advanced
+
+      - id: rag-systems
+        name: RAG 系统
+        parent: AI/ML
+        search: "RAG retrieval augmented generation chunking rerank best practices"
+        difficulty: intermediate
+
+      - id: agent-architecture
+        name: Agent 架构
+        parent: AI/ML
+        search: "AI agent ReAct tool-use planning architecture best practices"
+        difficulty: advanced
+
+      - id: vector-retrieval
+        name: 向量检索
+        parent: AI/ML
+        search: "vector embedding ANN hybrid retrieval best practices"
+        difficulty: intermediate
+
+  - id: low-level-systems
+    name: 底层系统
+    icon: chip
+    children:
+      - id: os-internals
+        name: 操作系统
+        parent: 底层系统
+        search: "operating system process scheduling memory management internals"
+        difficulty: advanced
+
+      - id: network-protocols
+        name: 网络协议栈
+        parent: 底层系统
+        search: "TCP IP HTTP2 QUIC network protocol implementation best practices"
+        difficulty: advanced
+
+      - id: compiler
+        name: 编译原理
+        parent: 底层系统
+        search: "LLVM JIT bytecode compiler implementation best practices"
+        difficulty: advanced
+
+      - id: filesystem
+        name: 文件系统
+        parent: 底层系统
+        search: "B-tree LSM log-structured filesystem implementation"
+        difficulty: advanced
+
+  - id: engineering-practice
+    name: 工程实践
+    icon: tools
+    children:
+      - id: design-patterns
+        name: 设计模式
+        parent: 工程实践
+        search: "design patterns GoF functional dependency injection best practices"
+        difficulty: intermediate
+
+      - id: cicd
+        name: CI/CD
+        parent: 工程实践
+        search: "CI CD GitHub Actions deployment strategy best practices"
+        difficulty: beginner
+
+      - id: containerization
+        name: 容器化
+        parent: 工程实践
+        search: "Docker Kubernetes orchestration best practices production"
+        difficulty: intermediate
+
+      - id: testing-strategy
+        name: 测试策略
+        parent: 工程实践
+        search: "TDD integration testing e2e testing strategy best practices"
+        difficulty: intermediate
+
+      - id: code-review
+        name: 代码审查
+        parent: 工程实践
+        search: "code review checklist static analysis best practices patterns"
+        difficulty: beginner
+
+  - id: security
+    name: 安全
+    icon: shield
+    children:
+      - id: web-security
+        name: Web 安全
+        parent: 安全
+        search: "web security XSS CSRF SQLi SSRF OWASP defense best practices"
+        repo_hint: "shieldfy/API-Security-Checklist"
+        difficulty: intermediate
+
+      - id: auth
+        name: 认证授权
+        parent: 安全
+        search: "OAuth2 JWT RBAC authentication authorization best practices"
+        difficulty: intermediate
+
+      - id: cryptography
+        name: 密码学
+        parent: 安全
+        search: "TLS hash signature cryptography implementation best practices"
+        difficulty: advanced
+
+      - id: vulnerability
+        name: 逆向与漏洞
+        parent: 安全
+        search: "fuzzing symbolic execution vulnerability research best practices"
+        difficulty: advanced
+
+# ── 学习配置 ──
+learning:
+  repo_dir: memory/knowledge/repos        # clone 仓库存放目录
+  knowledge_dir: memory/knowledge/languages # 提炼知识存放目录
+  max_repo_size_mb: 200                     # repos/ 总大小上限

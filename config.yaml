@@ -46,3 +46,11 @@ tools:
   file:
     max_file_size: 1048576     # read_file 最大文件大小（1MB）
     allowed_dirs: []            # write_file 允许的目录（空=仅项目内）
+
+# ── 知识学习 ──
+learning:
+  repo_dir: memory/knowledge/repos         # clone 仓库存放目录
+  knowledge_dir: memory/knowledge/languages # 提炼知识存放目录
+  max_repo_size_mb: 200                    # repos/ 总大小上限
+  max_repo_depth: 1                        # git clone --depth
+  max_source_files: 5                      # 最多读几个源码文件

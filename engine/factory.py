@@ -169,6 +169,14 @@ def create_agent(project_root: Path) -> Agent:
     memory_reader = MemoryReader(root=project_root)
     memory_manager = MemoryManager(memory_reader)
 
+    # ── 知识学习 ──
+    from engine.core.taxonomy import TaxonomyManager
+    from engine.core.profile import ProfileManager
+
+    taxonomy = TaxonomyManager(root=project_root)
+    taxonomy.load()
+    profile_manager = ProfileManager(root=project_root)
+
     # ── 组装 ──
     confirm_tools = set(config.agent.confirm_tools)
 
@@ -178,4 +186,6 @@ def create_agent(project_root: Path) -> Agent:
         skill_registry=skills,
         memory_manager=memory_manager,
         confirm_tools=confirm_tools,
+        taxonomy=taxonomy,
+        profile_manager=profile_manager,
     )

@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智序者 - 知识面板</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #03030d;
+  color: #d0d0d0;
+  min-height: 100vh;
+  padding: 0 20px 40px;
+}
+
+/* ── 顶部栏 ── */
+.topbar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 18px 0; border-bottom: 1px solid rgba(167,139,250,0.08);
+  margin-bottom: 28px; flex-wrap: wrap;
+}
+.topbar a {
+  color: #a78bfa; text-decoration: none; font-size: 13px;
+  padding: 6px 14px; border-radius: 7px;
+  border: 1px solid rgba(167,139,250,0.15);
+  transition: all 0.2s;
+}
+.topbar a:hover { background: rgba(167,139,250,0.12); }
+.topbar h1 {
+  font-size: 20px; font-weight: 600;
+  background: linear-gradient(135deg, #a78bfa, #60a5fa);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.topbar .badge {
+  font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  background: rgba(167,139,250,0.12); color: #8b83ba;
+}
+
+/* ── 能力画像区 ── */
+.profile-section {
+  background: rgba(16,16,32,0.6); border: 1px solid rgba(167,139,250,0.08);
+  border-radius: 14px; padding: 20px 24px; margin-bottom: 28px;
+}
+.profile-section h2 {
+  font-size: 16px; color: #c4b5fd; margin-bottom: 14px;
+  font-weight: 600;
+}
+.profile-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.profile-card {
+  background: rgba(22,22,38,0.8); border: 1px solid rgba(167,139,250,0.06);
+  border-radius: 10px; padding: 12px 16px;
+  font-size: 13px;
+}
+.profile-card .lang-name { font-weight: 600; color: #ddd; margin-bottom: 4px; }
+.profile-card .lang-level {
+  display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px;
+  font-weight: 500;
+}
+.level-none { background: rgba(255,255,255,0.04); color: #555; }
+.level-beginner { background: rgba(96,165,250,0.12); color: #60a5fa; }
+.level-intermediate { background: rgba(167,139,250,0.15); color: #a78bfa; }
+.level-advanced { background: rgba(52,211,153,0.12); color: #34d399; }
+.profile-card .lang-count { font-size: 11px; color: #666; margin-top: 4px; }
+
+/* ── 分类区 ── */
+.categories { display: flex; flex-direction: column; gap: 20px; }
+
+.category-card {
+  background: rgba(16,16,32,0.6); border: 1px solid rgba(167,139,250,0.08);
+  border-radius: 14px; overflow: hidden;
+}
+.cat-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px 20px; cursor: pointer;
+  transition: background 0.2s;
+}
+.cat-header:hover { background: rgba(167,139,250,0.04); }
+.cat-header .cat-icon { font-size: 22px; }
+.cat-header h3 { font-size: 15px; color: #c4b5fd; font-weight: 600; }
+.cat-header .cat-count { font-size: 11px; color: #666; margin-left: auto; }
+
+.cat-body {
+  padding: 0 20px 16px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+/* ── 主题卡片 ── */
+.topic-card {
+  background: rgba(22,22,38,0.9); border: 1px solid rgba(167,139,250,0.06);
+  border-radius: 10px; padding: 14px 16px;
+  display: flex; align-items: center; gap: 12px;
+  transition: all 0.2s;
+}
+.topic-card:hover { border-color: rgba(167,139,250,0.2); }
+.topic-card.learned { opacity: 0.7; }
+.topic-card.learning { border-color: rgba(251,191,36,0.3); }
+
+.topic-info { flex: 1; min-width: 0; }
+.topic-name { font-size: 13px; font-weight: 600; color: #ddd; margin-bottom: 3px; }
+.topic-meta { font-size: 11px; color: #666; }
+.topic-meta .diff {
+  display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px;
+  margin-left: 6px;
+}
+.diff-beginner { background: rgba(52,211,153,0.08); color: #34d399; }
+.diff-intermediate { background: rgba(251,191,36,0.1); color: #d4a853; }
+.diff-advanced { background: rgba(239,68,68,0.08); color: #f87171; }
+
+.topic-status {
+  flex-shrink: 0; font-size: 11px; font-weight: 500;
+  padding: 5px 12px; border-radius: 7px; cursor: default;
+  border: 1px solid transparent; min-width: 80px; text-align: center;
+}
+.topic-status.ready {
+  background: rgba(167,139,250,0.1); border-color: rgba(167,139,250,0.2);
+  color: #a78bfa; cursor: pointer; transition: all 0.2s;
+}
+.topic-status.ready:hover {
+  background: rgba(167,139,250,0.2); border-color: rgba(167,139,250,0.4);
+}
+.topic-status.done {
+  background: rgba(52,211,153,0.06); border-color: rgba(52,211,153,0.1);
+  color: #34d399;
+}
+.topic-status.running {
+  background: rgba(251,191,36,0.1); border-color: rgba(251,191,36,0.2);
+  color: #d4a853;
+}
+
+/* ── 进度条 ── */
+.progress-wrap {
+  margin-top: 6px; display: none;
+}
+.progress-wrap.active { display: block; }
+.progress-bar {
+  height: 3px; border-radius: 2px;
+  background: rgba(251,191,36,0.15);
+  overflow: hidden; margin-top: 4px;
+}
+.progress-bar .fill {
+  height: 100%; border-radius: 2px;
+  background: linear-gradient(90deg, #a78bfa, #60a5fa);
+  width: 0%; transition: width 0.3s;
+}
+.progress-text { font-size: 10px; color: #888; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>智序者 zhixuzhe</h1>
+  <span class="badge">v1.2</span>
+  <a href="/">← 返回对话</a>
+</div>
+
+<!-- 能力画像 -->
+<div class="profile-section" id="profile-section">
+  <h2>能力画像</h2>
+  <div class="profile-grid" id="profile-grid">
+    <div style="font-size:12px;color:#555">加载中...</div>
+  </div>
+</div>
+
+<!-- 知识分类 -->
+<div class="categories" id="categories">
+  <div style="font-size:13px;color:#555;text-align:center;padding:40px">加载知识分类...</div>
+</div>
+
+<script>
+// ════════════════════════════════════
+//  数据加载
+// ════════════════════════════════════
+
+const LEVEL_CLASS = {
+  '未接触': 'level-none', '入门': 'level-beginner',
+  '进阶': 'level-intermediate', '熟练': 'level-advanced'
+};
+const DIFF_CLASS = {
+  'beginner': 'diff-beginner', 'intermediate': 'diff-intermediate', 'advanced': 'diff-advanced'
+};
+
+async function loadProfile() {
+  try {
+    const resp = await fetch('/profile/data');
+    const data = await resp.json();
+    renderProfile(data);
+  } catch(e) {
+    document.getElementById('profile-grid').innerHTML = '<div style="font-size:12px;color:#555">加载失败</div>';
+  }
+}
+
+function renderProfile(data) {
+  const grid = document.getElementById('profile-grid');
+  const langs = data.languages || {};
+  const entries = Object.entries(langs);
+
+  if (entries.length === 0) {
+    grid.innerHTML = '<div style="font-size:12px;color:#555">暂无学习记录 — 在下方选择一个主题开始学习</div>';
+    return;
+  }
+
+  grid.innerHTML = entries.map(([name, stats]) => `
+    <div class="profile-card">
+      <div class="lang-name">${esc(name)}</div>
+      <span class="lang-level ${LEVEL_CLASS[stats.level] || 'level-none'}">${esc(stats.level)}</span>
+      <div class="lang-count">${stats.count} 条知识 · ${stats.last_study}</div>
+    </div>
+  `).join('');
+}
+
+async function loadTaxonomy() {
+  try {
+    const resp = await fetch('/taxonomy');
+    const data = await resp.json();
+    renderCategories(data.categories);
+  } catch(e) {
+    document.getElementById('categories').innerHTML =
+      '<div style="font-size:13px;color:#f87171;text-align:center;padding:40px">加载失败: ' + esc(String(e)) + '</div>';
+  }
+}
+
+const ICON_MAP = {
+  'code': '🐍', 'cpu': '🦀', 'architecture': '🏗️', 'brain': '🤖',
+  'chip': '⚙️', 'tools': '🛠️', 'shield': '🔒'
+};
+
+function renderCategories(cats) {
+  const container = document.getElementById('categories');
+  container.innerHTML = cats.map(cat => `
+    <div class="category-card">
+      <div class="cat-header" onclick="toggleCat(this)">
+        <span class="cat-icon">${ICON_MAP[cat.icon] || '📁'}</span>
+        <h3>${esc(cat.name)}</h3>
+        <span class="cat-count">${cat.children.length} 个主题</span>
+      </div>
+      <div class="cat-body">
+        ${cat.children.map(n => renderTopic(n)).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+let learningNodes = {};
+
+function renderTopic(node) {
+  const learned = node.learned;
+  const isLearning = learningNodes[node.id];
+  const statusClass = isLearning ? 'running' : (learned ? 'done' : 'ready');
+  const statusText = isLearning ? '学习中...' : (learned ? '已学 ✅' : '开始学习');
+  const cardClass = isLearning ? 'learning' : (learned ? 'learned' : '');
+  const diffCN = {beginner:'入门', intermediate:'中级', advanced:'高级'}[node.difficulty] || node.difficulty;
+
+  return `
+    <div class="topic-card ${cardClass}" id="topic-${node.id}">
+      <div class="topic-info">
+        <div class="topic-name">${esc(node.name)}</div>
+        <div class="topic-meta">
+          ${esc(node.parent)}
+          <span class="diff ${DIFF_CLASS[node.difficulty] || ''}">${diffCN}</span>
+        </div>
+        <div class="progress-wrap ${isLearning ? 'active' : ''}" id="progress-${node.id}">
+          <div class="progress-bar"><div class="fill" id="fill-${node.id}"></div></div>
+          <div class="progress-text" id="progtext-${node.id}"></div>
+        </div>
+      </div>
+      <div class="topic-status ${statusClass}"
+           id="status-${node.id}"
+           ${(!learned && !isLearning) ? `onclick="startLearn('${node.id}')"` : ''}>
+        ${statusText}
+      </div>
+    </div>`;
+}
+
+function toggleCat(header) {
+  const body = header.nextElementSibling;
+  if (body) {
+    body.style.display = body.style.display === 'none' ? '' : 'none';
+  }
+}
+
+// ════════════════════════════════════
+//  学习流程
+// ════════════════════════════════════
+
+async function startLearn(nodeId) {
+  const statusEl = document.getElementById('status-' + nodeId);
+  const cardEl = document.getElementById('topic-' + nodeId);
+  if (!statusEl || statusEl.classList.contains('running')) return;
+
+  learningNodes[nodeId] = true;
+
+  // UI 切换为"学习中"
+  statusEl.classList.remove('ready');
+  statusEl.classList.add('running');
+  statusEl.textContent = '学习中...';
+  statusEl.onclick = null;
+  if (cardEl) cardEl.classList.add('learning');
+
+  // 显示进度条
+  const pwrap = document.getElementById('progress-' + nodeId);
+  const pfill = document.getElementById('fill-' + nodeId);
+  const ptext = document.getElementById('progtext-' + nodeId);
+  if (pwrap) pwrap.classList.add('active');
+
+  try {
+    const resp = await fetch('/learn', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ node_id: nodeId }),
+    });
+
+    if (!resp.ok) {
+      throw new Error('HTTP ' + resp.status);
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop() || '';
+
+      for (const block of lines) {
+        if (!block.startsWith('data: ')) continue;
+        try {
+          const data = JSON.parse(block.slice(6));
+
+          if (data.type === 'learn_start') {
+            if (ptext) ptext.textContent = '搜索 GitHub 仓库...';
+            if (pfill) pfill.style.width = '10%';
+          } else if (data.type === 'learn_step') {
+            const msg = data.content || '';
+            if (ptext) ptext.textContent = msg.slice(0, 60);
+            if (pfill) {
+              // 进度伪估算（实际不可靠，但给用户体感）
+              const cur = parseInt(pfill.style.width) || 10;
+              const next = Math.min(cur + 15, 90);
+              pfill.style.width = next + '%';
+            }
+          } else if (data.type === 'learn_done') {
+            if (pfill) pfill.style.width = '100%';
+            if (ptext) ptext.textContent = '完成';
+            // 标记已学
+            statusEl.classList.remove('running');
+            statusEl.classList.add('done');
+            statusEl.textContent = '已学 ✅';
+            if (cardEl) {
+              cardEl.classList.remove('learning');
+              cardEl.classList.add('learned');
+            }
+            delete learningNodes[nodeId];
+            // 刷新画像
+            loadProfile();
+          } else if (data.type === 'error') {
+            if (ptext) ptext.textContent = '错误: ' + (data.content || '');
+            statusEl.classList.remove('running');
+            statusEl.classList.add('ready');
+            statusEl.textContent = '重试';
+            statusEl.onclick = function() { startLearn(nodeId); };
+            delete learningNodes[nodeId];
+          }
+        } catch(e) { /* 静默忽略解析错误 */ }
+      }
+    }
+  } catch(e) {
+    if (ptext) ptext.textContent = '连接错误';
+    statusEl.classList.remove('running');
+    statusEl.classList.add('ready');
+    statusEl.textContent = '重试';
+    statusEl.onclick = function() { startLearn(nodeId); };
+    delete learningNodes[nodeId];
+  }
+}
+
+function esc(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+// 初始化
+loadProfile();
+loadTaxonomy();
+</script>
+</body>
+</html>

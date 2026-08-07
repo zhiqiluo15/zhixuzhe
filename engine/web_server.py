@@ -292,6 +292,12 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
         elif self.path == "/skills":
             if self._check_agent():
                 self._serve_skills()
+        elif self.path == "/profile":
+            self._serve_profile_page()
+        elif self.path == "/profile/data":
+            self._serve_profile_data()
+        elif self.path == "/taxonomy":
+            self._serve_taxonomy()
         else:
             self._error(404, "Not Found")
 
@@ -323,6 +329,9 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
         elif self.path == "/reset":
             if self._check_agent():
                 self._handle_reset()
+        elif self.path == "/learn":
+            if self._check_agent():
+                self._handle_learn()
         else:
             self._error(404, "Not Found")
 
@@ -602,6 +611,150 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             )
 
             sse_write("chain_done", {"content": response})
+        except Exception as e:
+            sse_write("error", {"content": str(e)})
+
+    # ── 知识面板页面 ──
+
+    def _serve_profile_page(self):
+        """提供能力面板页面"""
+        session_id = self._read_session_cookie()
+        self.send_response(200)
+        self._cors()
+        if not session_id:
+            self._set_session_cookie(secrets.token_urlsafe(32))
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        profile_path = WEB_DIR / "profile.html"
+        if profile_path.exists():
+            self.wfile.write(profile_path.read_text(encoding="utf-8").encode())
+        else:
+            self.wfile.write("<h1>profile.html 未找到</h1>".encode())
+
+    def _serve_profile_data(self):
+        """返回能力档案 JSON"""
+        agent = get_agent()
+        self._ok()
+        profile_data = {"languages": {}, "history": [], "skills": []}
+        if agent.profile_manager:
+            profile_data = agent.profile_manager.load()
+        if agent.skill_registry:
+            profile_data["skills"] = [
+                {"name": s.name, "description": s.description}
+                for s in agent.skill_registry.list_all()
+            ]
+        self.wfile.write(json.dumps(profile_data, ensure_ascii=False).encode())
+
+    def _serve_taxonomy(self):
+        """返回知识分类树 JSON（含已学状态）"""
+        agent = get_agent()
+        if not agent.taxonomy:
+            self._error(500, "知识分类系统未初始化")
+            return
+
+        self._ok()
+        categories = agent.taxonomy.to_dict()
+
+        # 注入每个节点的已学状态
+        if agent.profile_manager:
+            profile_data = agent.profile_manager.load()
+            for cat in categories:
+                for node in cat.get("children", []):
+                    parent = node.get("parent", "")
+                    stats = profile_data.get("languages", {}).get(parent, {})
+                    node["learned"] = stats.get("count", 0) > 0
+
+        self.wfile.write(json.dumps({"categories": categories}, ensure_ascii=False).encode())
+
+    # ── 学习任务 ──
+
+    def _handle_learn(self):
+        """启动知识学习任务（SSE 流式返回进度）"""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+            node_id = body.get("node_id", "").strip()
+        except (ValueError, json.JSONDecodeError):
+            self._error(400, "无效请求体")
+            return
+
+        if not node_id:
+            self._error(400, "node_id 不能为空")
+            return
+
+        agent = get_agent()
+        if not agent.taxonomy:
+            self._error(500, "知识分类系统未初始化")
+            return
+
+        node = agent.taxonomy.get_node(node_id)
+        if not node:
+            self._error(400, f"未知主题: {node_id}")
+            return
+
+        self.send_response(200)
+        self._cors()
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+
+        def sse_write(event_type: str, data: dict) -> None:
+            payload = json.dumps({"type": event_type, **data}, ensure_ascii=False)
+            try:
+                self.wfile.write(f"data: {payload}\n\n".encode())
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+        try:
+            repo_hint_str = f"推荐仓库：{node.repo_hint}" if node.repo_hint else ""
+            goal = (
+                f"学习计算机知识主题：{node.name}（属于{node.parent}领域）。\n"
+                f"搜索提示：{agent.taxonomy.generate_search_query(node_id)}\n"
+                f"{repo_hint_str}\n\n"
+                f"要求：\n"
+                f"1. 用 web_search 在 GitHub 上找到该主题最权威/最活跃的 1 个开源仓库"
+                f"（优先官方仓库或知名社区仓库，要求 README 完整、近 6 个月有 commit）\n"
+                f"2. 用 run_shell 将仓库 git clone --depth 1 到 memory/knowledge/repos/ 目录\n"
+                f"3. 用 run_shell 查看仓库结构，用 read_file 阅读核心源码文件（最多 5 个文件）\n"
+                f"4. 提炼学习成果并输出结构化报告，含核心模式、代码范式（学模式不抄代码）、安全边界、对智序者的启发\n"
+                f"5. 完成后告知学习报告已生成"
+            )
+
+            sse_write("learn_start", {
+                "node_id": node_id,
+                "name": node.name,
+                "parent": node.parent,
+            })
+
+            def verbose_callback(msg: str) -> None:
+                sse_write("learn_step", {"content": msg})
+
+            confirm_callback = _make_web_confirm_callback(sse_write, self._session_id)
+
+            response = agent.task_runner.run(
+                goal, verbose=True,
+                verbose_callback=verbose_callback,
+                confirm_callback=confirm_callback,
+            )
+
+            # 更新能力档案
+            if agent.profile_manager:
+                stats = agent.profile_manager.get_language_stats(node.parent)
+                new_count = stats.get("count", 0) + 1
+                agent.profile_manager.record_learning(
+                    parent=node.parent,
+                    topic=node.name,
+                    total_count=new_count,
+                    summary=response[:200],
+                )
+
+            sse_write("learn_done", {
+                "content": response,
+                "parent": node.parent,
+                "topic": node.name,
+            })
         except Exception as e:
             sse_write("error", {"content": str(e)})
 

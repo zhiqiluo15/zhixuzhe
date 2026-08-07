@@ -710,3 +710,43 @@
 - **验证**：monkeypatch `os.replace` 抛 PermissionError → `_write_env` 5 次重试后正确抛 `PermissionError`（不再 RuntimeError），无残留临时文件；`GetDiagnostics` 无报错。
 - **实测**：修复后当场检测 `.env` 可正常独占写入（WRITABLE-OK）——锁为间歇性（用户设置瞬间被资源管理器/杀软占用），重试+指引已覆盖。
 - **教训**：Python 无参 `raise` 只能在 `except` 块内使用；循环重试后要抛出累计的异常对象，必须显式引用（`raise last_error`），不能用裸 `raise`。
+
+---
+
+### GitHub 知识学习系统 + 能力面板（2026-08-07）
+
+- **动机**：智序者需要从外部世界主动获取知识，而非仅从自身经历中被动积累。能力面（2 技能 7 工具）是当前最大短板，GitHub 上的优秀开源项目是最高质量的知识来源。此次升级打通"主动学习→知识沉淀→能力档案→技能转化"的完整闭环。
+- **核心设计**：
+  - **知识分类树**（`engine/knowledge/taxonomy.yaml` + `engine/core/taxonomy.py`）：7 大类别、38 个可学主题，每个叶子节点预配 GitHub 搜索提示词（带 `best practices` 质量信号）、难度等级、所属领域。数据在 taxonomy.py 内联硬编码（零依赖，不与引擎耦合），taxonomy.yaml 是可读参考。
+  - **TaxonomyManager**：加载分类树、节点查找、生成搜索查询（自动拼接 `site:github.com`）。
+  - **ProfileManager**（`engine/core/profile.py`）：能力档案管理 —— 读写 `memory/profile/abilities.md`，客观指标评级（0条=未接触 / 1-3条=入门 / 4-7条=进阶 / 8+=熟练），学习历史记录。
+  - **学习管线**（融入 TaskRunner 的现有四阶段流水线）：
+    1. web_search 在 GitHub 找权威仓库（五标准筛选：README 完整、近期活跃、CI badge、被知名项目依赖、代码清晰——需满足 3/5）
+    2. git clone --depth 1 到 memory/knowledge/repos/（HITL 确认）
+    3. 浏览结构 + 读核心源码（最多 5 文件）
+    4. Brain 提炼报告：核心模式 + 代码范式（学模式不抄代码）+ 安全边界 + 对智序者启发
+    5. 自动更新能力档案
+  - **Web 能力面板**（`engine/web/profile.html`）：能力画像（语言水平表）+ 知识分类卡片墙（展开每个类别看主题列表）+ 点击"开始学习"→ SSE 实时进度条 + 完成后自动标 ✅ + 画像数字刷新。
+- **学习→技能的远期路径**：当前产出知识资产（memory/knowledge/），远期从学到的模式中提炼 Skill 罐装计划 → 安全审查 → 冒烟验证 → 注册进 engine/skills/（基因层，可开源繁殖）。三层资产：知识（私有，跨大脑可复用）+ 模板（基因层）+ 技能（基因层，需验证）。
+- **换大脑后完全可复用**：知识是 md 文件、技能是 Python + 配置、模板是代码片段，全纯本地文件，零 API 依赖。未来本地部署 DeepSeek 换 Brain 后端，资产原样可用。
+- **新文件**：
+  - `engine/knowledge/taxonomy.yaml` —— 知识分类树（可读参考）
+  - `engine/core/taxonomy.py` —— TaxonomyManager（~235 行，数据内联）
+  - `engine/core/profile.py` —— ProfileManager（~170 行）
+  - `engine/web/profile.html` —— 能力面板页面（SSE 实时学习进度）
+  - `memory/knowledge/languages/` —— 知识库目录
+  - `memory/profile/abilities.md` —— 能力档案
+- **改造文件**：
+  - `engine/factory.py` —— 组装 TaxonomyManager + ProfileManager → Agent
+  - `engine/core/loop.py` —— Agent 新增 taxonomy/profile_manager 字段；REPL 新增 `learn`/`taxonomy`/`profile` 命令
+  - `engine/web_server.py` —— 新增 GET `/profile`（面板页）、GET `/profile/data`（档案 JSON）、GET `/taxonomy`（分类树 JSON，含已学状态）、POST `/learn`（SSE 流式学习任务）
+  - `engine/web/index.html` —— 导航栏新增"知识面板"按钮
+  - `config.yaml` —— 新增 `learning` 配置段
+- **CLI 使用**：
+  - `taxonomy` —— 列出 7 大类 38 主题（已学的标 ✅）
+  - `profile` —— 查看能力画像（语言×水平×知识量）
+  - `learn <主题ID>` —— 对指定主题启动 GitHub 学习（如 `learn async-python`）
+- **验证**：测试 20/20 全绿，零回归；import 链健康；7 类别 38 主题全部正确加载。
+- **教训**：
+  1. **自建微型 YAML 解析器为过度优化**：taxonomy.yaml 的嵌套结构（列表内对象含多属性）比 config.yaml 复杂一个量级，递归下降解析器易出边界 bug。最终选择数据内联硬编码（Python dataclass），taxonomy.yaml 退化为可读参考。纯数据文件用 Python 原生数据结构比手写解析器更可靠。
+  2. **三层资产模式清晰**：知识（灵魂层私有）、技能（基因层需验证）、模板（基因层），学习→沉淀→转化的路径比直接在Skill里写学习逻辑更解耦。
