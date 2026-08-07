@@ -7,6 +7,7 @@
 - base.py / registry.py: 技能基础设施
 - hardware_check/: 硬件检测 + QLoRA 可行性判断
 - web_research/: 联网搜索 + 多源抓取 + 结构化调研
+- code_explore/: 项目代码库搜索 + 精读 + 结构化代码调研
 """
 from engine.skills.base import Skill
 from engine.skills.registry import SkillRegistry

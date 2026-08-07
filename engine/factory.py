@@ -39,6 +39,7 @@ def create_agent(project_root: Path) -> Agent:
     from engine.tools.file_io import read_file, write_file
     from engine.tools.web_fetch import web_fetch
     from engine.tools.web_search import web_search
+    from engine.tools.search_file import search_file
 
     tools = ToolRegistry()
     tools.register(Tool(
@@ -146,16 +147,45 @@ def create_agent(project_root: Path) -> Agent:
             "required": ["query"],
         },
     ))
+    tools.register(Tool(
+        name="search_file",
+        description="在项目代码库中按正则表达式搜索文件内容，返回 文件:行号:匹配行。用于定位代码位置、查找函数/类/关键实现。",
+        func=search_file,
+        parameters={
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "要搜索的正则表达式（忽略大小写），如 'def add' 或 'Cache\\\\.class'",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "搜索起始目录（相对项目根，默认 '.' 整个项目）",
+                },
+                "file_pattern": {
+                    "type": "string",
+                    "description": "文件名过滤 glob，如 '*.py'（默认全部文本文件）",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "最多返回匹配条数（默认 50，上限 200）",
+                },
+            },
+            "required": ["pattern"],
+        },
+    ))
 
     # ── 技能 ──
     from engine.skills.registry import SkillRegistry
     from engine.skills.hardware_check.skill import HardwareCheckSkill
     from engine.skills.web_research.skill import WebResearchSkill
+    from engine.skills.code_explore.skill import CodeSearchSkill
 
     skills = SkillRegistry()
-    # 注册顺序影响 Router 首匹配：含显式动作词（搜索/查/调研）的技能优先，
-    # 领域名词技能（硬件/代码/数据）在后，避免"搜索 QLoRA 论文"误匹配硬件检测
+    # 注册顺序影响 Router 首匹配：含显式动作词（搜索/查/调研）的 web 技能优先，
+    # 代码领域词（代码/源码）次之，领域名词技能（硬件）在后，避免"搜索 QLoRA 论文"误匹配硬件检测
     skills.register(WebResearchSkill())
+    skills.register(CodeSearchSkill())
     skills.register(HardwareCheckSkill())
 
     # ── 记忆 ──

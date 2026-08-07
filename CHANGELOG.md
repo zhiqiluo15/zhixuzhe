@@ -854,3 +854,22 @@
 - **P2：异常兜底**：`record_knowledge` 和 `record_learning` 均用 try/except 包裹，失败不阻断主流程。
 - **验证**：测试 20/20 全绿，零回归；import 链全链路验证通过（TaxonomyManager/ProfileManager/MemoryReader/Recorder/MemoryManager/TaskRunner）。
 - **教训**：首次上线功能应做"全链路烟雾测试"——从"学一个主题"走到"在对话中引用学到的知识"，逐环节检查中间产物是否真的生成/索引/可检索。局部代码正确不能保证链路闭合。
+
+---
+
+### 新增 search_file 工具 + code_search_explore 技能（2026-08-07）
+
+- **动机**：按 6 技能规划推进，code_search_explore 需要先在项目代码库中定位代码——但 factory 只有 7 个工具（文件读写/搜索/抓取/命令/硬件），缺"项目内搜索"手脚。先补 grep 工具，再建技能。
+- **search_file 工具**（[search_file.py](engine/tools/search_file.py)）：
+  - 零依赖：`os.walk` 递归遍历 + `re` 正则匹配（忽略大小写），返回 `文件:行号: 内容` 格式，路径相对项目根可直接喂给 `read_file`。
+  - 安全与性能（沿用 file_io 边界约定）：路径限制在项目根内越界拒绝；自动跳过二进制扩展名黑名单 + 前 2KB NUL 检测；忽略 `.git`/`__pycache__`/`.pytest_cache`/`node_modules`/`target` 等目录（`os.walk` 剪枝）；单文件 >1MB 跳过；行内容截断 200 字符、结果条数上限（默认 50，上限 200，达限标注）。
+  - 参数：`pattern`（必填正则）/ `path`（起始目录）/ `file_pattern`（glob 过滤）/ `max_results`。
+- **code_search_explore 技能**（[code_explore/skill.py](engine/skills/code_explore/skill.py)）：
+  - 三步计划：search_file 定位候选文件 → read_file 精读 1-3 个关键文件 → 产出结构化代码调研报告（核心逻辑+文件行号定位 / 模块职责与调用关系 / 设计模式与风格 / 潜在问题与改进建议，信息不足明确标注）。
+  - 触发词：中文显式动作词（搜索代码/搜代码/查代码/看代码/读代码/分析代码等）+ 领域定位词（代码里/代码中/源码里/项目里有没有等，带"里/中"语境保证特异性）+ 英文（search code / explore code / codebase 等）。
+  - **Router 冲突规避**（沿用 CHANGELOG 2026-08-07 沉淀原则）：逐条与 web_research 触发词做子串冲突检查，"搜索代码"不含"搜索一下"、"搜代码"不含"搜一下"、"查代码"不含"查一下"，避免被 web 技能抢先匹配。
+- **factory.py 更新**：注册 search_file（第 8 个工具）；注册 CodeSearchSkill（第 3 个技能）。技能注册顺序：web_research（显式动作词）→ code_search（代码领域词）→ hardware_check（硬件领域词），注释同步更新。
+- **测试**：新增 [test_search_file.py](engine/tests/test_search_file.py) 13 个用例（工具 9 个：命中/忽略大小写/未命中/二进制跳过/忽略目录/glob 过滤/越界/无效正则/上限截断；路由 4 个：中文命中/英文命中/三技能互不抢占/无关意图不命中）。**总计 38/38 全绿**。
+- **冒烟验证**：真实项目根 `search_file("def web_fetch")` 命中 `web_fetch.py:44`；Router 三种意图各归其位。
+- **已知局限（如实记录）**：子串匹配下，"搜一下代码/查一下代码"这类**组合说法**（web 动作词 + 代码领域词）仍会命中 web_research——这是关键词路由的固有缺陷，与 CHANGELOG 已记录的"技能增多后 Router 成瓶颈，升级 LLM 路由"待办一致，等真实冲突出现再升级。
+- **后续**：`data_analysis_visual`（需先补 sqlite/json 类数据工具）、`file_manage_batch` 技能，以及 hardware_check → environment_check 扩展。
