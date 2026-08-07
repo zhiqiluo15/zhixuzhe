@@ -623,6 +623,7 @@ const sendBtn = document.getElementById('sendBtn');
 const taskBtn = document.getElementById('taskBtn');
 let isTaskMode = false;
 let isStreaming = false;
+let currentAbort = null;  // 当前流式请求的 AbortController（用于重置时中止）
 
 function scrollBottom() {
   chatEl.scrollTop = chatEl.scrollHeight;
@@ -814,11 +815,15 @@ async function send() {
   const endpoint = isTaskMode ? '/task' : '/chat';
   const bodyKey = isTaskMode ? 'goal' : 'message';
 
+  const controller = new AbortController();
+  currentAbort = controller;
+
   try {
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ [bodyKey]: text }),
+      signal: controller.signal,
     });
 
     if (!resp.ok) {
@@ -914,24 +919,41 @@ async function send() {
     if (bubble) bubble.classList.remove('streaming');
 
   } catch (e) {
-    hideThinking();
-    addMessage('system', `连接错误: ${e.message}`);
-    setHint('');
+    if (e.name === 'AbortError') {
+      // 用户主动中止（如点重置），静默处理，不报错
+    } else {
+      hideThinking();
+      addMessage('system', `连接错误: ${e.message}`);
+      setHint('');
+    }
   }
 
   isStreaming = false;
   sendBtn.disabled = false;
   inputEl.focus();
+  currentAbort = null;
 }
 
 async function resetChat() {
-  if (isStreaming) return;
+  // 有进行中的流（任务模式/流式输出/确认弹窗）→ 先中止连接，再执行重置
+  if (currentAbort) {
+    try { currentAbort.abort(); } catch (e) {}
+    currentAbort = null;
+  }
+  isStreaming = false;
+  sendBtn.disabled = false;
+  hideThinking();
+  // 关闭可能挂起的确认弹窗
+  const confirmOverlay = document.getElementById('confirm-overlay');
+  if (confirmOverlay) confirmOverlay.classList.remove('visible');
+
   try {
-    await fetch('/reset', { method: 'POST' });
+    const resp = await fetch('/reset', { method: 'POST' });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     chatEl.innerHTML = '';
     addMessage('assistant', '对话已重置。有什么可以帮你？');
   } catch (e) {
-    addMessage('system', '重置失败');
+    addMessage('system', `重置失败: ${e.message}`);
   }
 }
 </script>
