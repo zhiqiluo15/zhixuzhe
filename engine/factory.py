@@ -40,6 +40,7 @@ def create_agent(project_root: Path) -> Agent:
     from engine.tools.web_fetch import web_fetch
     from engine.tools.web_search import web_search
     from engine.tools.search_file import search_file
+    from engine.tools.read_data import read_data
 
     tools = ToolRegistry()
     tools.register(Tool(
@@ -174,18 +175,43 @@ def create_agent(project_root: Path) -> Agent:
             "required": ["pattern"],
         },
     ))
+    tools.register(Tool(
+        name="read_data",
+        description="读取 CSV/JSON/JSONL 数据文件，输出结构预览与统计摘要（列、类型、数值列 count/min/max/mean/std、类别列唯一值与 top、前几行）。数据分析第一步。",
+        func=read_data,
+        parameters={
+            "type": "object",
+            "properties": {
+                "filepath": {
+                    "type": "string",
+                    "description": "数据文件路径（相对项目根或绝对路径）",
+                },
+                "format": {
+                    "type": "string",
+                    "description": "数据格式：auto（按扩展名推断）/csv/json/jsonl/text",
+                },
+                "preview_rows": {
+                    "type": "integer",
+                    "description": "预览行数（默认 10，上限 50）",
+                },
+            },
+            "required": ["filepath"],
+        },
+    ))
 
     # ── 技能 ──
     from engine.skills.registry import SkillRegistry
     from engine.skills.hardware_check.skill import HardwareCheckSkill
     from engine.skills.web_research.skill import WebResearchSkill
     from engine.skills.code_explore.skill import CodeSearchSkill
+    from engine.skills.data_analysis.skill import DataAnalysisSkill
 
     skills = SkillRegistry()
     # 注册顺序影响 Router 首匹配：含显式动作词（搜索/查/调研）的 web 技能优先，
-    # 代码领域词（代码/源码）次之，领域名词技能（硬件）在后，避免"搜索 QLoRA 论文"误匹配硬件检测
+    # 代码领域词（代码/源码）次之，数据领域词（数据/表格）再次，领域名词技能（硬件）最后
     skills.register(WebResearchSkill())
     skills.register(CodeSearchSkill())
+    skills.register(DataAnalysisSkill())
     skills.register(HardwareCheckSkill())
 
     # ── 记忆 ──

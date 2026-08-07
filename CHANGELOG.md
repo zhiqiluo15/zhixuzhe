@@ -873,3 +873,20 @@
 - **冒烟验证**：真实项目根 `search_file("def web_fetch")` 命中 `web_fetch.py:44`；Router 三种意图各归其位。
 - **已知局限（如实记录）**：子串匹配下，"搜一下代码/查一下代码"这类**组合说法**（web 动作词 + 代码领域词）仍会命中 web_research——这是关键词路由的固有缺陷，与 CHANGELOG 已记录的"技能增多后 Router 成瓶颈，升级 LLM 路由"待办一致，等真实冲突出现再升级。
 - **后续**：`data_analysis_visual`（需先补 sqlite/json 类数据工具）、`file_manage_batch` 技能，以及 hardware_check → environment_check 扩展。
+
+---
+
+### 新增 read_data 工具 + data_analysis_visual 技能（2026-08-07）
+
+- **动机**：按 6 技能规划推进 data_analysis_visual——但 factory 没有"读数据"手脚（read_file 只读文本，不理解 CSV/JSON 结构）。先补数据读取工具，再建技能。
+- **read_data 工具**（[read_data.py](engine/tools/read_data.py)）：
+  - 零依赖：csv / json / statistics 标准库，支持 **CSV / JSON（数组与对象）/ JSONL / TEXT**，`format` 参数可显式指定或按扩展名推断。
+  - 输出结构化的数据摘要（而非原始数据灌上下文）：数据规模（行×列）、列名、**每列类型自动识别**（可转 float 比例 ≥80% 判为数值列）——数值列给 count/min/max/mean/std，类别列给 unique + top 3 频次，另附前 N 行表格预览。
+  - 安全与性能（沿用 file_io 边界约定）：项目根内越界拒绝；二进制检测；文件 >10MB 拒绝；统计最多扫 10000 行（样本足够代表性）；预览行数上限 50、单元格截断 60 字符。
+- **data_analysis_visual 技能**（[data_analysis/skill.py](engine/skills/data_analysis/skill.py)）：
+  - 三步计划：read_data 获取结构统计摘要 → Brain 深度分析（趋势/模式/异常/数据质量/相关性推断）→ 产出结构化分析报告（数据概览 / 关键发现附数值佐证 / ASCII 可视化描述 / 结论建议，信息不足明确标注）。
+  - 触发词设计（沿用 Router 沉淀原则）：一律带"数据/Data/csv/json/表格"绑定词保证特异性；**刻意不用"分析一下""看一下"等宽泛动作词**——"分析一下代码"必须命中 code_search 而非本技能，从源头规避抢占。
+- **factory.py 更新**：注册 read_data（第 9 个工具）；注册 DataAnalysisSkill（第 4 个技能）。注册顺序：web_research → code_search → data_analysis → hardware_check（动作词 → 代码 → 数据 → 硬件）。
+- **测试**：新增 [test_read_data.py](engine/tests/test_read_data.py) 16 个用例（工具 11 个：CSV 统计/数值识别/JSON 数组/JSON 对象/JSONL/TEXT/越界/不存在/二进制/格式不支持/format 参数；路由 5 个：中英文命中/四技能互不抢占/分析一下代码不被 data 抢占/无关不命中）。**总计 54/54 全绿**。
+- **冒烟验证**：真实会话文件 `read_data('memory/conversations/*.jsonl')` 正确解析 46 条记录、role/content 两列统计准确；Router 四技能各归其位。
+- **后续**：`file_manage_batch` 技能（基于现有 file_io/run_shell 即可），以及 hardware_check → environment_check 扩展。

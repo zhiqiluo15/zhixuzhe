@@ -8,6 +8,7 @@
 - hardware_check/: 硬件检测 + QLoRA 可行性判断
 - web_research/: 联网搜索 + 多源抓取 + 结构化调研
 - code_explore/: 项目代码库搜索 + 精读 + 结构化代码调研
+- data_analysis/: 数据文件读取 + 统计洞察 + 结构化分析报告
 """
 from engine.skills.base import Skill
 from engine.skills.registry import SkillRegistry
