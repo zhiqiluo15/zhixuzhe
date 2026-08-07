@@ -273,10 +273,9 @@ class Agent:
                     print("错误: 能力档案未初始化")
                     continue
 
-                print(f"\n🎓 开始学习: {node.name} ({node.parent}, {node.difficulty})")
-                print(f"   将搜索 GitHub 并深入阅读源码...\n")
+                print(f"\n学习: {node.name} ({node.parent}, {node.difficulty})")
+                print(f"将搜索 GitHub 并深入阅读源码...\n")
 
-                # 构造学习目标
                 goal = (
                     f"学习计算机知识主题：{node.name}（属于{node.parent}领域）。\n"
                     f"搜索提示：{self.taxonomy.generate_search_query(node_id)}\n"
@@ -285,12 +284,7 @@ class Agent:
                     f"1. 用 web_search 在 GitHub 上找到该主题最权威/最活跃的 1 个开源仓库（优先官方仓库或知名社区仓库，要求 README 完整、最近 6 个月有 commit）\n"
                     f"2. 用 run_shell 将仓库 git clone --depth 1 到 memory/knowledge/repos/ 目录\n"
                     f"3. 用 run_shell 查看仓库结构，用 read_file 阅读核心源码文件（入口、核心模块，最多 5 个文件）\n"
-                    f"4. 提炼学习成果并输出结构化报告，包含：\n"
-                    f"   - 核心概念与设计模式\n"
-                    f"   - 值得借鉴的代码范式（学模式不抄代码）\n"
-                    f"   - 安全边界与常见踩坑点\n"
-                    f"   - 对智序者的启发\n"
-                    f"5. 学习完成后自动更新能力档案"
+                    f"4. 提炼学习成果并输出结构化报告，包含：核心概念与设计模式、值得借鉴的代码范式（学模式不抄代码）、安全边界与常见踩坑点、对智序者的启发"
                 )
 
                 logger.info(f"开始学习: {node_id} ({node.name})")
@@ -298,27 +292,43 @@ class Agent:
                     goal,
                     confirm_callback=self._hitl_confirm,
                 )
+
+                step_results = self.task_runner.last_step_results
+                failed = any(
+                    "执行失败" in (s or "") or "确认被拒" in (s or "")
+                    for s in step_results
+                )
+
+                if failed:
+                    print(f"\n学习未完成：部分步骤执行失败或 HITL 确认被拒。知识库和档案均未更新。\n")
+                    continue
+
                 print(f"\n═══ 学习成果 ═══\n\n{response}\n")
+
+                # 写知识文件
+                try:
+                    self.recorder.record_knowledge(
+                        parent=node.parent,
+                        topic=node.name,
+                        report=response,
+                    )
+                except Exception as e:
+                    logger.debug(f"知识写入失败（不阻断流程）: {e}")
 
                 # 更新能力档案
                 try:
                     stats = self.profile_manager.get_language_stats(node.parent)
-                    new_count = stats["count"] + 1
+                    new_count = stats.get("count", 0) + 1
                     self.profile_manager.record_learning(
                         parent=node.parent,
                         topic=node.name,
                         total_count=new_count,
                         summary=response[:200],
                     )
-                    print(f"[能力档案已更新] {node.parent} 现在 {node.name} → {ProfileManager.level(new_count)}（{new_count} 条）\n")
+                    print(f"[档案已更新] {node.parent} {node.name} → {ProfileManager.level(new_count)}（{new_count} 条）\n")
                 except Exception as e:
-                    logger.debug(f"档案更新失败（不阻断学习流程）: {e}")
+                    logger.debug(f"档案更新失败（不阻断流程）: {e}")
 
-                # 入历史
-                self.history.append(Message(role="user", content=user_input))
-                self.history.append(Message(role="assistant", content=response))
-                if self.history_store:
-                    self.history_store.save(self.history)
                 continue
 
             # 任务模式

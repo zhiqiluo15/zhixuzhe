@@ -91,6 +91,7 @@ class TaskRunner:
         self.recorder = recorder
         self.router = Router(skill_registry) if skill_registry else None
         self.memory_manager = memory_manager
+        self.last_step_results: list[str] = []  # 供调用方检测失败状态
 
     def run(
         self,
@@ -136,6 +137,7 @@ class TaskRunner:
         final, step_results = self.execute_plan(
             goal, plan, confirm_callback, verbose_cb, memory_context,
         )
+        self.last_step_results = step_results  # 暴露给调用方检测失败
         _vprint("完成")
 
         # 4. 记录

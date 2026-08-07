@@ -37,7 +37,9 @@ class MemoryManager:
             content = e["content"][:MAX_ENTRY_CHARS]
             if len(e["content"]) > MAX_ENTRY_CHARS:
                 content += "…"
-            source_label = "日记" if e["source"] == "diary" else "经验"
+            source_label = {"diary": "日记", "experience": "经验", "knowledge": "知识"}.get(
+                e["source"], e["source"],
+            )
             lines.append(f"\n[{i + 1}] {e['date']} ({source_label}, 相关度 {e['score']})\n{content}")
 
         return "\n".join(lines)

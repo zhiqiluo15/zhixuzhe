@@ -22,6 +22,7 @@ API:
 import json
 import logging
 import os
+import re
 import secrets
 import sys
 import threading
@@ -41,6 +42,10 @@ WEB_DIR = Path(__file__).resolve().parent / "web"
 _agent = None
 _agent_error: str | None = None  # 初始化失败时的错误信息
 _agent_lock = threading.Lock()
+
+# ── 学习任务后台状态 ──
+_learn_tasks: dict[str, dict] = {}  # learn_id → {"status", "node_id", "steps", "result", "error"}
+_learn_lock = threading.Lock()
 
 # ── HITL 确认状态 ──
 _pending_confirms: dict[str, dict] = {}  # confirm_id → {"event", "result", "session_id"}
@@ -298,6 +303,8 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             self._serve_profile_data()
         elif self.path == "/taxonomy":
             self._serve_taxonomy()
+        elif self.path.startswith("/learn/status"):
+            self._serve_learn_status()
         else:
             self._error(404, "Not Found")
 
@@ -667,10 +674,24 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
 
         self.wfile.write(json.dumps({"categories": categories}, ensure_ascii=False).encode())
 
+    # ── 学习任务状态查询 ──
+
+    def _serve_learn_status(self):
+        """GET /learn/status?learn_id=X 查询学习任务进度"""
+        import urllib.parse
+        qs = urllib.parse.urlparse(self.path).query
+        params = urllib.parse.parse_qs(qs)
+        learn_id = params.get("learn_id", [""])[0]
+
+        self._ok()
+        with _learn_lock:
+            task = _learn_tasks.get(learn_id, {"status": "not_found"})
+        self.wfile.write(json.dumps(task, ensure_ascii=False).encode())
+
     # ── 学习任务 ──
 
     def _handle_learn(self):
-        """启动知识学习任务（SSE 流式返回进度）"""
+        """启动知识学习任务（后台线程，SSE 返回 learn_id 供轮询）"""
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length))
@@ -693,70 +714,35 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             self._error(400, f"未知主题: {node_id}")
             return
 
-        self.send_response(200)
-        self._cors()
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
+        learn_id = str(uuid.uuid4())
 
-        def sse_write(event_type: str, data: dict) -> None:
-            payload = json.dumps({"type": event_type, **data}, ensure_ascii=False)
-            try:
-                self.wfile.write(f"data: {payload}\n\n".encode())
-                self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
-                pass
-
-        try:
-            repo_hint_str = f"推荐仓库：{node.repo_hint}" if node.repo_hint else ""
-            goal = (
-                f"学习计算机知识主题：{node.name}（属于{node.parent}领域）。\n"
-                f"搜索提示：{agent.taxonomy.generate_search_query(node_id)}\n"
-                f"{repo_hint_str}\n\n"
-                f"要求：\n"
-                f"1. 用 web_search 在 GitHub 上找到该主题最权威/最活跃的 1 个开源仓库"
-                f"（优先官方仓库或知名社区仓库，要求 README 完整、近 6 个月有 commit）\n"
-                f"2. 用 run_shell 将仓库 git clone --depth 1 到 memory/knowledge/repos/ 目录\n"
-                f"3. 用 run_shell 查看仓库结构，用 read_file 阅读核心源码文件（最多 5 个文件）\n"
-                f"4. 提炼学习成果并输出结构化报告，含核心模式、代码范式（学模式不抄代码）、安全边界、对智序者的启发\n"
-                f"5. 完成后告知学习报告已生成"
-            )
-
-            sse_write("learn_start", {
+        with _learn_lock:
+            _learn_tasks[learn_id] = {
+                "status": "running",
                 "node_id": node_id,
                 "name": node.name,
                 "parent": node.parent,
-            })
+                "step": 0,
+                "step_text": "启动中...",
+                "total_steps": 0,
+                "result": "",
+                "error": "",
+            }
 
-            def verbose_callback(msg: str) -> None:
-                sse_write("learn_step", {"content": msg})
+        # 后台执行
+        t = threading.Thread(
+            target=_run_learn_in_background,
+            args=(learn_id, agent, node),
+            daemon=True,
+        )
+        t.start()
 
-            confirm_callback = _make_web_confirm_callback(sse_write, self._session_id)
-
-            response = agent.task_runner.run(
-                goal, verbose=True,
-                verbose_callback=verbose_callback,
-                confirm_callback=confirm_callback,
-            )
-
-            # 更新能力档案
-            if agent.profile_manager:
-                stats = agent.profile_manager.get_language_stats(node.parent)
-                new_count = stats.get("count", 0) + 1
-                agent.profile_manager.record_learning(
-                    parent=node.parent,
-                    topic=node.name,
-                    total_count=new_count,
-                    summary=response[:200],
-                )
-
-            sse_write("learn_done", {
-                "content": response,
-                "parent": node.parent,
-                "topic": node.name,
-            })
-        except Exception as e:
-            sse_write("error", {"content": str(e)})
+        self._ok()
+        self.wfile.write(json.dumps({
+            "status": "started",
+            "learn_id": learn_id,
+            "node_id": node_id,
+        }, ensure_ascii=False).encode())
 
     # ── 重置 ──
 
@@ -767,6 +753,95 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             agent.history_store.new_session()
         self._ok()
         self.wfile.write(json.dumps({"status": "ok"}).encode())
+
+
+def _run_learn_in_background(learn_id: str, agent, node) -> None:
+    """后台执行学习任务，更新 _learn_tasks 状态。
+
+    关键流程：
+    1. 搜索 → clone → 读源码 → 提炼报告（走 TaskRunner）
+    2. 检测失败（step_results 含"执行失败"或"确认被拒"）→ 不记数不落盘
+    3. 成功则：写知识文件 + 更新能力档案
+    4. 异常兜底：任何异常都不击穿线程，记入 error
+    """
+    try:
+        repo_hint_str = f"推荐仓库：{node.repo_hint}" if node.repo_hint else ""
+        goal = (
+            f"学习计算机知识主题：{node.name}（属于{node.parent}领域）。\n"
+            f"搜索提示：{agent.taxonomy.generate_search_query(node.id)}\n"
+            f"{repo_hint_str}\n\n"
+            f"要求：\n"
+            f"1. 用 web_search 在 GitHub 上找到该主题最权威/最活跃的 1 个开源仓库"
+            f"（优先官方仓库或知名社区仓库，要求 README 完整、近 6 个月有 commit）\n"
+            f"2. 用 run_shell 检查 memory/knowledge/repos/ 下是否已有该仓库；"
+            f"已有则跳过 clone，直接用已有代码学习\n"
+            f"3. 若需 clone，检查 repos/ 总大小是否超 200MB（du -sh）；"
+            f"若超限提示需要清理后再学，本次仅基于搜索到的 README/文档学习\n"
+            f"4. 用 run_shell 查看仓库结构，用 read_file 阅读核心源码文件（最多 5 个文件）\n"
+            f"5. 提炼学习成果并输出结构化报告，含核心模式、代码范式（学模式不抄代码）、安全边界、对智序者的启发"
+        )
+
+        def progress_callback(msg: str) -> None:
+            with _learn_lock:
+                task = _learn_tasks.get(learn_id, {})
+                task["step_text"] = msg[:120]
+                step_match = re.search(r"\[(\d+)/(\d+)\]", msg)
+                if step_match:
+                    task["step"] = int(step_match.group(1))
+                    task["total_steps"] = int(step_match.group(2))
+
+        response = agent.task_runner.run(
+            goal, verbose=True,
+            verbose_callback=progress_callback,
+        )
+
+        step_results = agent.task_runner.last_step_results
+
+        failed = any(
+            "执行失败" in (s or "") or "确认被拒" in (s or "")
+            for s in step_results
+        )
+
+        if failed:
+            with _learn_lock:
+                _learn_tasks[learn_id]["status"] = "failed"
+                _learn_tasks[learn_id]["error"] = (
+                    "学习未完成：部分步骤执行失败或 HITL 确认被拒。"
+                    "知识库和档案均未更新，可稍后重试。"
+                )
+            return
+
+        try:
+            agent.recorder.record_knowledge(
+                parent=node.parent,
+                topic=node.name,
+                report=response,
+            )
+        except Exception as e:
+            logger.warning(f"知识写入失败（不阻断流程）: {e}")
+
+        try:
+            if agent.profile_manager:
+                stats = agent.profile_manager.get_language_stats(node.parent)
+                new_count = stats.get("count", 0) + 1
+                agent.profile_manager.record_learning(
+                    parent=node.parent,
+                    topic=node.name,
+                    total_count=new_count,
+                    summary=response[:200],
+                )
+        except Exception as e:
+            logger.warning(f"档案更新失败（不阻断流程）: {e}")
+
+        with _learn_lock:
+            _learn_tasks[learn_id]["status"] = "done"
+            _learn_tasks[learn_id]["result"] = response[:500]
+
+    except Exception as e:
+        logger.error(f"学习任务异常: {e}", exc_info=True)
+        with _learn_lock:
+            _learn_tasks[learn_id]["status"] = "failed"
+            _learn_tasks[learn_id]["error"] = str(e)
 
 
 # ── 启动 ──

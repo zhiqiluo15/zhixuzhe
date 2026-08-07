@@ -750,3 +750,27 @@
 - **教训**：
   1. **自建微型 YAML 解析器为过度优化**：taxonomy.yaml 的嵌套结构（列表内对象含多属性）比 config.yaml 复杂一个量级，递归下降解析器易出边界 bug。最终选择数据内联硬编码（Python dataclass），taxonomy.yaml 退化为可读参考。纯数据文件用 Python 原生数据结构比手写解析器更可靠。
   2. **三层资产模式清晰**：知识（灵魂层私有）、技能（基因层需验证）、模板（基因层），学习→沉淀→转化的路径比直接在Skill里写学习逻辑更解耦。
+
+---
+
+### 学习系统 P0 级 Bug 修复（2026-08-07）
+
+- **现象**：首次上线时三个主流程缺陷——前台阻塞（关页即停）、伪进度（`+15%` 视觉欺骗）、全量保存（中断全丢）。用户实测反馈后排查确认。
+- **P0-1：学习成果从未落盘**：全项目无代码向 `memory/knowledge/languages/` 写内容。完整报告只在内存流一次即蒸发。修复：
+  - [recorder.py](engine/core/recorder.py)：新增 `record_knowledge(parent, topic, report)` ——原子写入 `memory/knowledge/languages/<领域>/<主题>.md`（临时文件 + `os.replace`）。
+  - [web_server.py](engine/web_server.py)：后台线程学习成功后调 `agent.recorder.record_knowledge()`；异常兜底不影响线程。
+  - [loop.py](engine/core/loop.py)：CLI `learn` 命令完成后同样写知识文件。
+- **P0-2：失败也记"已学"导致能力档案污染**：用户 HITL 拒绝 clone 或步骤执行失败 → 能力档案依然 `count + 1`。修复：
+  - [task.py](engine/core/task.py)：`TaskRunner` 新增 `last_step_results` 公开属性，每次 `run()` 后更新。
+  - [web_server.py](engine/web_server.py) + [loop.py](engine/core/loop.py)：学习完成后检测 `step_results` 是否含"执行失败"或"确认被拒"，是则跳过知识落盘和档案更新，提示失败。
+- **P0-3：学完的知识不会在对话中生效**：`MemoryReader` 只检索 `diary` 和 `experience`，不认识 `knowledge` 目录。修复：
+  - [memory_reader.py](engine/core/memory_reader.py)：新增 `retrieve_knowledge()` 方法；`retrieve()` 综合检索三源（日记→经验→知识）；`_search_dir` 对 knowledge 目录走递归（`**/*.md`）；新增 `_extract_date_from_header` 从知识文件头提取日期。
+  - [memory_manager.py](engine/core/memory_manager.py)：source label 新增"知识"。
+- **P1-1：后台学习**：前端关页不再中断任务。修复：
+  - [web_server.py](engine/web_server.py)：`_handle_learn` 改为启动后台线程 → 立即返回 `learn_id`；新增 `_run_learn_in_background` 模块级函数（在后台线程执行完整学习管线）；新增 `GET /learn/status?learn_id=X` 供前端轮询；新增 `_learn_tasks` 全局状态 dict（线程安全）。
+  - [profile.html](engine/web/profile.html)：前端从 SSE 流改为 `POST /learn` 获取 `learn_id` → `setInterval` 每 1.5s 轮询 `GET /learn/status`。
+- **P1-2：真实进度**：修复前端伪进度条（`cur + 15%` → 真实 `step/total_steps * 100`）。`_run_learn_in_background` 的 `progress_callback` 从 verbose 消息中提取 `[i/n]` 模式，写入 `_learn_tasks`。前端据此算百分比。
+- **P1-3：断点续传**：学习 goal 中新增步骤——先检查 `memory/knowledge/repos/` 下是否已有该仓库，已有则跳过 clone；检查 repos 总大小是否超 200MB，超限提示清理。
+- **P2：异常兜底**：`record_knowledge` 和 `record_learning` 均用 try/except 包裹，失败不阻断主流程。
+- **验证**：测试 20/20 全绿，零回归；import 链全链路验证通过（TaxonomyManager/ProfileManager/MemoryReader/Recorder/MemoryManager/TaskRunner）。
+- **教训**：首次上线功能应做"全链路烟雾测试"——从"学一个主题"走到"在对话中引用学到的知识"，逐环节检查中间产物是否真的生成/索引/可检索。局部代码正确不能保证链路闭合。

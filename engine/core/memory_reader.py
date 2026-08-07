@@ -144,19 +144,21 @@ class MemoryReader:
         self.root = root
         self.diary_dir = root / "memory" / "diary"
         self.experience_dir = root / "memory" / "experience"
+        self.knowledge_dir = root / "memory" / "knowledge" / "languages"
         self.MIN_SCORE = config.memory.min_score
         self.DEDUP_THRESHOLD = config.memory.dedup_threshold
 
     # ── 公开接口 ──
 
     def retrieve(self, query: str, max_entries: int = 5) -> list[dict]:
-        """综合检索日记 + 经验，返回去重后的 top-k 条目列表
+        """综合检索日记 + 经验 + 知识，返回去重后的 top-k 条目列表
 
-        每个条目格式：{"source": "diary"|"experience", "date": str, "content": str, "score": float}
+        每个条目格式：{"source": "diary"|"experience"|"knowledge", "date": str, "content": str, "score": float}
         """
         results: list[dict] = []
         results.extend(self.retrieve_diary(query, max_entries * 2))
         results.extend(self.retrieve_experience(query, max_entries))
+        results.extend(self.retrieve_knowledge(query, max_entries))
         results.sort(key=lambda r: r["score"], reverse=True)
         return self._dedup(results, max_entries)
 
@@ -168,12 +170,16 @@ class MemoryReader:
         """仅检索个人经验"""
         return self._search_dir(self.experience_dir, query, top_k, "experience")
 
+    def retrieve_knowledge(self, query: str, top_k: int = 5) -> list[dict]:
+        """仅检索知识库（从 GitHub 学来的结构化知识）"""
+        return self._search_dir(self.knowledge_dir, query, top_k, "knowledge")
+
     # ── 内部方法 ──
 
     def _search_dir(
         self, directory: Path, query: str, top_k: int, source: str
     ) -> list[dict]:
-        """搜索目录下所有 .md 文件"""
+        """搜索目录下所有 .md 文件（knowledge 目录递归搜索子目录）"""
         if not directory.exists():
             return []
 
@@ -182,13 +188,18 @@ class MemoryReader:
             return []
 
         scored: list[dict] = []
-        for md_file in sorted(directory.glob("*.md"), reverse=True):
+        # knowledge 目录有子文件夹结构，需要递归
+        pattern = "**/*.md" if source == "knowledge" else "*.md"
+        for md_file in sorted(directory.glob(pattern), reverse=True):
             try:
                 content = md_file.read_text(encoding="utf-8")
             except Exception:
                 continue
             entries = _parse_diary_entries(content)
             date_str = _extract_date(md_file.name)
+            # knowledge 文件从文件头提取日期
+            if source == "knowledge" and not date_str:
+                date_str = _extract_date_from_header(content)
             for entry in entries:
                 s = _score(query_terms, entry)
                 if s >= self.MIN_SCORE:
@@ -222,4 +233,12 @@ def _extract_date(filename: str) -> str:
     m = re.match(r"(\d{4})(\d{2})(\d{2})", filename)
     if m:
         return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    return ""
+
+
+def _extract_date_from_header(content: str) -> str:
+    """从知识文件头提取日期，匹配 '学习时间：YYYY-MM-DD'"""
+    m = re.search(r"学习时间[：:]\s*(\d{4}-\d{2}-\d{2})", content)
+    if m:
+        return m.group(1)
     return ""

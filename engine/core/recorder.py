@@ -58,6 +58,39 @@ class Recorder:
         entry = f"## {timestamp}\n\n**场景**：{scene}\n\n**教训**：{lesson}\n\n---\n\n"
         self._write_experience(entry)
 
+    def record_knowledge(
+        self,
+        parent: str,
+        topic: str,
+        report: str,
+        source_repo: str = "",
+    ) -> None:
+        """将学习报告写入知识库 memory/knowledge/languages/<parent>/<topic>.md
+
+        知识文件是可检索的结构化资产，供 MemoryReader 在对话中自动注入上下文。
+        写入为原子操作：先写临时文件，再 os.replace 避免竞态损坏。
+        """
+        knowledge_dir = self.root / "memory" / "knowledge" / "languages"
+        parent_dir = knowledge_dir / parent
+        parent_dir.mkdir(parents=True, exist_ok=True)
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        header = f"# {topic}\n\n"
+        header += f"> 领域：{parent}  \n"
+        header += f"> 学习时间：{today}  \n"
+        if source_repo:
+            header += f"> 来源：{source_repo}  \n"
+        header += f"\n---\n\n"
+
+        content = header + report
+        filepath = parent_dir / f"{topic}.md"
+
+        # 原子写入
+        tmp = filepath.with_suffix(".md.tmp")
+        tmp.write_text(content, encoding="utf-8")
+        tmp.replace(filepath)
+        logger.info(f"知识已入库: {parent}/{topic}")
+
     def _write_experience(self, entry: str) -> None:
         """写经验到当日经验文件，自动去重。
 

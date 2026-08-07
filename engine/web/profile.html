@@ -295,20 +295,19 @@ async function startLearn(nodeId) {
 
   learningNodes[nodeId] = true;
 
-  // UI 切换为"学习中"
   statusEl.classList.remove('ready');
   statusEl.classList.add('running');
   statusEl.textContent = '学习中...';
   statusEl.onclick = null;
   if (cardEl) cardEl.classList.add('learning');
 
-  // 显示进度条
   const pwrap = document.getElementById('progress-' + nodeId);
   const pfill = document.getElementById('fill-' + nodeId);
   const ptext = document.getElementById('progtext-' + nodeId);
   if (pwrap) pwrap.classList.add('active');
 
   try {
+    // 启动后台学习任务
     const resp = await fetch('/learn', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -319,62 +318,52 @@ async function startLearn(nodeId) {
       throw new Error('HTTP ' + resp.status);
     }
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
+    const data = await resp.json();
+    const learnId = data.learn_id;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    // 轮询进度
+    let pollTimer = setInterval(async () => {
+      try {
+        const sr = await fetch('/learn/status?learn_id=' + learnId);
+        const status = await sr.json();
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n\n');
-      buffer = lines.pop() || '';
-
-      for (const block of lines) {
-        if (!block.startsWith('data: ')) continue;
-        try {
-          const data = JSON.parse(block.slice(6));
-
-          if (data.type === 'learn_start') {
-            if (ptext) ptext.textContent = '搜索 GitHub 仓库...';
-            if (pfill) pfill.style.width = '10%';
-          } else if (data.type === 'learn_step') {
-            const msg = data.content || '';
-            if (ptext) ptext.textContent = msg.slice(0, 60);
-            if (pfill) {
-              // 进度伪估算（实际不可靠，但给用户体感）
-              const cur = parseInt(pfill.style.width) || 10;
-              const next = Math.min(cur + 15, 90);
-              pfill.style.width = next + '%';
-            }
-          } else if (data.type === 'learn_done') {
-            if (pfill) pfill.style.width = '100%';
-            if (ptext) ptext.textContent = '完成';
-            // 标记已学
-            statusEl.classList.remove('running');
-            statusEl.classList.add('done');
-            statusEl.textContent = '已学 ✅';
-            if (cardEl) {
-              cardEl.classList.remove('learning');
-              cardEl.classList.add('learned');
-            }
-            delete learningNodes[nodeId];
-            // 刷新画像
-            loadProfile();
-          } else if (data.type === 'error') {
-            if (ptext) ptext.textContent = '错误: ' + (data.content || '');
-            statusEl.classList.remove('running');
-            statusEl.classList.add('ready');
-            statusEl.textContent = '重试';
-            statusEl.onclick = function() { startLearn(nodeId); };
-            delete learningNodes[nodeId];
+        if (status.status === 'running') {
+          // 真实进度：从 step/total_steps 算
+          if (status.total_steps > 0 && pfill) {
+            pfill.style.width = Math.round((status.step / status.total_steps) * 100) + '%';
           }
-        } catch(e) { /* 静默忽略解析错误 */ }
+          if (ptext) {
+            ptext.textContent = status.step_text || ('步骤 ' + status.step + '/' + status.total_steps);
+          }
+        } else if (status.status === 'done') {
+          clearInterval(pollTimer);
+          if (pfill) pfill.style.width = '100%';
+          if (ptext) ptext.textContent = '完成';
+          statusEl.classList.remove('running');
+          statusEl.classList.add('done');
+          statusEl.textContent = '已学 ✅';
+          if (cardEl) {
+            cardEl.classList.remove('learning');
+            cardEl.classList.add('learned');
+          }
+          delete learningNodes[nodeId];
+          loadProfile();
+        } else if (status.status === 'failed') {
+          clearInterval(pollTimer);
+          if (ptext) ptext.textContent = '失败: ' + (status.error || '未知错误');
+          statusEl.classList.remove('running');
+          statusEl.classList.add('ready');
+          statusEl.textContent = '重试';
+          statusEl.onclick = function() { startLearn(nodeId); };
+          delete learningNodes[nodeId];
+        }
+      } catch(e) {
+        // 轮询错误静默忽略
       }
-    }
+    }, 1500);
+
   } catch(e) {
-    if (ptext) ptext.textContent = '连接错误';
+    if (ptext) ptext.textContent = '启动失败';
     statusEl.classList.remove('running');
     statusEl.classList.add('ready');
     statusEl.textContent = '重试';
