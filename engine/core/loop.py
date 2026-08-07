@@ -273,8 +273,11 @@ class Agent:
                     print("错误: 能力档案未初始化")
                     continue
 
-                print(f"\n学习: {node.name} ({node.parent}, {node.difficulty})")
-                print(f"将搜索 GitHub 并深入阅读源码...\n")
+                print("\n" + "═" * 44)
+                print("  🎓 知识学习模式已启动")
+                print(f"  📖 主题: {node.name}（{node.parent}，{node.difficulty}）")
+                print("  🔍 智序者将搜索 GitHub、clone 仓库、阅读源码并沉淀知识")
+                print("═" * 44 + "\n")
 
                 goal = (
                     f"学习计算机知识主题：{node.name}（属于{node.parent}领域）。\n"
@@ -338,6 +341,12 @@ class Agent:
                     print("用法: task <目标描述>")
                     continue
                 logger.info(f"进入任务模式: {goal[:50]}...")
+                print("\n" + "═" * 44)
+                print("  🔧 任务模式已启动")
+                print("  📋 智序者将自主规划步骤、逐步执行（可能调用多个工具），完成后给出综合结论")
+                print("  ⏸  如需中途停止，按 Ctrl+C 可退出")
+                print("═" * 44)
+                print(f"  🎯 目标: {goal}\n")
                 response = self.task_runner.run(
                     goal,
                     confirm_callback=self._hitl_confirm,
@@ -366,6 +375,11 @@ class Agent:
                     print("错误: 无已注册技能，无法执行链式任务")
                     continue
                 logger.info(f"进入链式模式: {goal[:50]} | {skill_names}")
+                print("\n" + "═" * 44)
+                print("  🔗 链式任务模式已启动")
+                print(f"  🧩 技能链: {' → '.join(skill_names)}")
+                print("═" * 44)
+                print(f"  🎯 目标: {goal}\n")
                 from engine.core.orchestrator import SkillChain
                 chain = SkillChain(
                     self.brain, self.tools, self.recorder,

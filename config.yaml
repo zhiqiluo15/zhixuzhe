@@ -13,14 +13,15 @@ model:
 
 # ── Agent ──
 agent:
-  max_tool_rounds: 5          # ReAct 循环最大工具调用轮次
+  max_tool_rounds: 10         # 普通对话 ReAct 循环最大工具调用轮次
   max_tool_output_chars: 32000 # 单次工具输出截断长度
   confirm_tools: [run_shell]   # 需要 HITL 确认的工具
 
 # ── 任务模式 ──
 task:
-  max_steps: 5                # 最多执行步骤数
+  max_steps: 8                # 最多执行步骤数
   plan_retries: 3             # 规划解析重试次数
+  max_tool_rounds: 15         # 任务模式下每一步的工具调用轮次上限（高于普通对话）
 
 # ── 记忆 ──
 memory:

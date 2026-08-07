@@ -155,8 +155,9 @@ class AgentConfig:
 
 @dataclass
 class TaskConfig:
-    max_steps: int = 5
+    max_steps: int = 8
     plan_retries: int = 3
+    max_tool_rounds: int = 15
 
 
 @dataclass

@@ -770,6 +770,11 @@ function toggleTaskMode() {
   taskBtn.classList.toggle('active', isTaskMode);
   inputEl.placeholder = isTaskMode ? '输入任务目标...' : '输入消息...';
   setHint(isTaskMode ? '任务模式：智序者将自主规划并执行' : 'Enter 发送，Shift+Enter 换行');
+  if (isTaskMode) {
+    addMessage('system', '🔧 **已进入任务模式**：智序者将自主规划步骤、逐步执行（可能调用多个工具），完成后给出综合结论。输入目标后发送即可。');
+  } else {
+    addMessage('system', '已退出任务模式，恢复普通对话。');
+  }
 }
 
 async function send() {
@@ -856,7 +861,7 @@ async function send() {
 
           } else if (data.type === 'task_start') {
             hideThinking();
-            addMessage('system', `**目标：** ${data.goal}`);
+            addMessage('system', `🔧 **任务模式执行中**\n**目标：** ${data.goal}\n智序者将自主规划并逐步执行，请稍候...`);
 
           } else if (data.type === 'task_step') {
             addMessage('system', data.content);

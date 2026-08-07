@@ -35,7 +35,7 @@ PLAN_SYSTEM = """你是一个任务规划器。将用户目标分解为具体、
 规则：
 - 每步是一个独立可完成的操作
 - 优先使用可用工具获取真实信息
-- 不超过 5 步
+- 不超过 {max_steps} 步
 - 简单目标 1-2 步即可"""
 
 # 执行提示词
@@ -226,7 +226,9 @@ class TaskRunner:
     def _plan(self, goal: str) -> list[str]:
         """用大脑分解目标为步骤列表"""
         tool_names = ", ".join(self.tools.names()) if self.tools else "无"
-        system = PLAN_SYSTEM.format(tools=tool_names)
+        system = PLAN_SYSTEM.format(
+            tools=tool_names, max_steps=config.task.max_steps,
+        )
 
         messages = [
             Message(role="system", content=system),
@@ -283,6 +285,7 @@ class TaskRunner:
         response = react_loop(
             self.brain, messages, self.tools,
             confirm_callback=confirm_callback,
+            max_rounds=config.task.max_tool_rounds,
         )
 
         return response.content

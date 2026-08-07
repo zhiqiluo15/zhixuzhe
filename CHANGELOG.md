@@ -753,6 +753,20 @@
 
 ---
 
+### 工具调用上限提升 + 任务模式显性提示（2026-08-07）
+
+- **动机**：排查发现工具调用次数少的原因之一是 `max_tool_rounds: 5` 过严——日记中 3 次 `[已达到最大工具调用轮次]` 截断（uv 学习任务步骤 4/5 未执行）。同时用户反馈任务模式缺少显性提示，进入时无感知。
+- **改动**：
+  - [config.yaml](config.yaml)：普通对话 `agent.max_tool_rounds: 5 → 10`；任务模式新增 `task.max_tool_rounds: 15`（每步执行轮次上限，高于普通对话）；`task.max_steps: 5 → 8`。
+  - [config.py](engine/config.py)：`TaskConfig` 新增 `max_tool_rounds: int = 15` 字段，默认 `max_steps` 同步为 8。
+  - [task.py](engine/core/task.py)：`_execute_step` 调用 `react_loop` 时传入 `max_rounds=config.task.max_tool_rounds`（15），任务模式每步可调 15 轮工具；`PLAN_SYSTEM` 的"不超过 5 步"改为由 `config.task.max_steps` 动态注入，避免提示词与配置不一致。
+  - [loop.py](engine/core/loop.py)：CLI 的 `task` / `chain` / `learn` 命令进入时打印显性横幅（任务模式已启动 + 目标 + 技能链 / 学习主题），用户对执行模式有明确感知。
+  - [index.html](engine/web/index.html)：Web 端 `toggleTaskMode()` 切换任务模式时在聊天区插入系统提示（"🔧 已进入任务模式…" / "已退出任务模式"）；`task_start` SSE 事件提示升级为"🔧 任务模式执行中 + 目标"，与普通对话明确区分。
+- **验证**：测试 20/20 全绿；`config.agent.max_tool_rounds=10` / `task.max_tool_rounds=15` / `task.max_steps=8` 正确加载。
+- **教训**：工具轮次上限是"能力 vs 成本"的平衡点，但当前阶段应优先保能力——任务模式每步 15 轮、普通对话 10 轮足够覆盖真实任务，且 HITL 确认仍然挡在 run_shell 前面，安全不受影响。
+
+---
+
 ### 学习系统 P0 级 Bug 修复（2026-08-07）
 
 - **现象**：首次上线时三个主流程缺陷——前台阻塞（关页即停）、伪进度（`+15%` 视觉欺骗）、全量保存（中断全丢）。用户实测反馈后排查确认。
