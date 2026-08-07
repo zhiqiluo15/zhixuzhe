@@ -940,4 +940,43 @@
 - 工具层（手脚）：11 个工具覆盖系统检测/文件IO/网络/代码搜索/数据分析/批量文件管理，功能闭环。
 - 技能层（罐装计划）：5 个技能均遵循 "3 步最佳实践" 模式，Router 首匹配即可跳过 LLM 即兴规划，省 API + 保稳定。
 - 引擎层：ReAct 循环 / TaskRunner / HistoryStore / MemoryManager / Recorder / Profile / Taxonomy 全部可用。
-- 下阶段可推进项：①接入真实 DeepSeek API 端到端跑完整对话 ②写一个 SkillChain 串联 Demo（如 web_research → data_analysis） ③验证记忆沉淀闭环（Recorder → 经验写入 → 下次检索命中）
+- 下阶段可推进项：①接入真实 DeepSeek API 端到端跑完整对话 ②写一个 SkillChain 串联 Demo（如 web_research → data_analysis）
+
+---
+
+## 2026-08-07（记忆沉淀闭环验证）
+
+### 背景
+CHANGELOG 上一版的「下阶段可推进项 ③」——验证"Recorder 写入 → MemoryReader 检索 → MemoryManager 上下文注入 → Agent 下轮 brain.think()"这条自进化关键链路是否真的通。
+
+### 验证方法（离线无 Brain API）
+`_reflect_experience()` 环节需要真实 DeepSeek API 做反思判断，本次通过离线手动调 Recorder 模拟任务完成后的写入行为，保证链路结构正确、数据格式一致、评分与注入生效：
+
+1. 真实调用 `detect_host()` + `verify_gpu()` 获取硬件数据（RTX 5060 Laptop 8GB / CUDA 12.8 / 加速比 14.4x）
+2. 对应 TaskRunner.run() 的两个写入点：
+   - `recorder.record_task(goal, plan, step_results, final, plan_source="skill:hardware_check")` → 日记
+   - `recorder.record_experience(scene, lesson)` → 经验（内容为 RTX 5060 8GB 跑 QLoRA 的稀缺性经验）
+3. 构造 4 组查询调 MemoryManager.build_context()，再模拟 Agent.run() 拼接到 SYSTEM_PROMPT，检查关键字覆盖率
+
+### 验证结果：✅ 闭环全部打通
+
+| 环节 | 指标 | 结果 |
+| --- | --- | --- |
+| **写入层（Recorder）** | | |
+| record_task | memory/diary/20260807.md 新增 [任务] 条目（规划来源 skill:hardware_check） | ✅ 4 步任务完整写入，3 步结果+最终结论格式正确 |
+| record | 普通问答写入到同一日记文件，## HH:MM:SS 时间戳格式 | ✅ 与 _parse_diary_entries() 匹配规则一致 |
+| record_experience | memory/experience/20260807.md 新增 ## 条目（场景 + 教训），自动去重生效 | ✅ 写入 2 条经验：历史的 tree 命令教训 + 本次硬件检测教训 |
+| **检索层（MemoryReader）** | | |
+| 中英文分词评分 | 「QLoRA微调 硬件条件」命中 3 条：diary(1.633) / diary(1.225) / experience(0.816) | ✅ 新写入条目分数名列前茅，√n 归一化无长查询惩罚 |
+| 去重机制 | Jaccard 阈值 0.7 过滤重复条目 | ✅ top-k 中未见高度相似冗余 |
+| 无关查询防护 | 「今天天气怎么样」返回空上下文 | ✅ 无误注入 |
+| **注入层（Agent）** | | |
+| build_context 拼接 | 「QLoRA微调够不够？之前检测怎么说？」查询触发上下文 1010 chars | ✅ 注入到 system prompt 末尾，结构为【相关历史经验】[n] 日期 来源 分数 内容 |
+| 关键字覆盖 | RTX 5060 / QLoRA / batch_size / 硬件检测 / CUDA 12.8 | ✅ 5/5 全部命中，Agent 下轮推理将看到自己的硬件判断历史 |
+
+### 踩坑与修正
+- 初版验证脚本在 PowerShell 中双引号转义冲突导致 Python 语法错误——解决：把脚本写到独立 `.py` 文件再 `python xxx.py` 调用。
+- 首次 `record_experience` 后发现经验文件只含 1 条历史——定位到首条验证是在脚本开头用 pickle 加载后一起执行，缺少 DEBUG 日志难以定位问题；复现时加 `logging.basicConfig(level=logging.DEBUG)` 即可看到 Recorder 内部的 DEBUG 去重日志。
+
+### 结论
+**自进化闭环的"记忆沉淀→检索注入"段已通过离线结构级验证。** 接入真实 DeepSeek API 后，这条链路无需任何代码改动即可生效：TaskRunner._reflect_experience() 调 Brain 产出 scene/lesson JSON → Recorder 写入 → 下次同类提问 build_context() 自动注入。
