@@ -134,10 +134,29 @@ class Agent:
 
     # ── 自动任务模式判断 ──
 
+    # 强任务信号：用户明确表达任务意图 → 直接进任务模式，零 LLM 判断
+    _TASK_STRONG_HINTS = (
+        "任务",            # "做个任务" / "执行任务" / "任务：" / "进入任务模式"
+        "帮我做", "帮我完成", "帮我搞", "帮我实现",
+        "帮我写个", "帮我写一个", "帮我搭建", "帮我部署",
+        "做个", "搞个", "搭个", "部署一个", "实现一个",
+        "调研一下", "对比一下", "分析一下",
+    )
+
+    # 强闲聊信号：明确非任务 → 直接普通对话，零 LLM 判断
+    _CHAT_STRONG_HINTS = (
+        "你好", "你好呀", "早上好", "下午好", "晚上好", "早安", "午安", "晚安",
+        "再见", "拜拜", "谢谢你", "谢谢啦", "辛苦了", "在吗", "在吗？",
+        "你是谁", "你叫什么", "hi", "hello", "hey", "thanks",
+    )
+
     def should_auto_task(self, user_input: str) -> bool:
         """判断普通对话输入是否需要自动升级为任务模式。
 
-        用 Brain 做一次轻量判断（不带工具、短提示词），输出 JSON。
+        三层决策：
+        1. 强任务信号（用户明确要任务）→ 直接 True，零 LLM 调用，秒进任务模式
+        2. 强闲聊信号（明确非任务）→ 直接 False，零 LLM 调用
+        3. 模棱两可 → Brain 轻量判断（不带工具、短提示词），输出 JSON
         判断失败或配置关闭时安全降级为普通对话（返回 False），不阻塞。
         """
         if not config.agent.auto_task:
@@ -145,6 +164,19 @@ class Agent:
         if not self.task_runner:
             return False
 
+        text = user_input.strip().lower()
+        # 第 1 层：强任务信号 → 直接命中，跳过 LLM
+        for hint in self._TASK_STRONG_HINTS:
+            if hint in text:
+                logger.debug(f"强任务信号命中: {hint} ← {user_input[:40]}...")
+                return True
+        # 第 2 层：强闲聊信号 → 直接普通对话，跳过 LLM
+        for hint in self._CHAT_STRONG_HINTS:
+            if hint in text:
+                logger.debug(f"强闲聊信号命中: {hint} ← {user_input[:40]}...")
+                return False
+
+        # 第 3 层：模棱两可 → Brain 轻量判断
         try:
             messages = [
                 Message(role="system", content=AUTO_TASK_JUDGE),

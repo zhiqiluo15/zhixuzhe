@@ -580,6 +580,32 @@ def test_should_auto_task_fallback(tmp_path):
     print("  ✅ 通过：判断失败安全降级为普通对话")
 
 
+def test_should_auto_task_strong_hint_zero_llm(tmp_path):
+    """should_auto_task：强任务信号 → 零 LLM 直接命中（不消耗 Brain responses）"""
+    print("\n" + "=" * 50)
+    print("测试 20: should_auto_task 强任务信号零 LLM 命中")
+    brain = MockBrain([])  # 空 responses：若调用 think 会返回兜底消息
+    agent = _make_agent_with_runner(brain, tmp_path)
+
+    for msg in ["帮我做个任务：调研 Python 包管理", "执行任务：对比 A 和 B", "做个 X 的实现"]:
+        assert agent.should_auto_task(msg) is True, f"应命中强任务信号: {msg}"
+    assert len(brain.calls) == 0, "强任务信号不应触发任何 Brain 调用"
+    print("  ✅ 通过：强任务信号直接命中，零 LLM 调用")
+
+
+def test_should_auto_task_chat_hint_zero_llm(tmp_path):
+    """should_auto_task：强闲聊信号 → 零 LLM 直接普通对话"""
+    print("\n" + "=" * 50)
+    print("测试 21: should_auto_task 强闲聊信号零 LLM")
+    brain = MockBrain([])
+    agent = _make_agent_with_runner(brain, tmp_path)
+
+    for msg in ["你好", "谢谢你了", "再见", "在吗？"]:
+        assert agent.should_auto_task(msg) is False, f"应命中强闲聊信号: {msg}"
+    assert len(brain.calls) == 0, "强闲聊信号不应触发任何 Brain 调用"
+    print("  ✅ 通过：强闲聊信号直接普通对话，零 LLM 调用")
+
+
 # ═══════════════════════════════════════════
 # 运行所有测试
 # ═══════════════════════════════════════════
@@ -610,6 +636,8 @@ if __name__ == "__main__":
         test_should_auto_task_true,
         test_should_auto_task_false,
         test_should_auto_task_fallback,
+        test_should_auto_task_strong_hint_zero_llm,
+        test_should_auto_task_chat_hint_zero_llm,
     ]
 
     for test in tests:
