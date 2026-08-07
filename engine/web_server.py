@@ -567,6 +567,13 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
 # ── 启动 ──
 
 def main(port: int = 8080):
+    # cmd（GBK 代码页）下 stdout 无法编码 emoji，统一降级为 replace，避免 UnicodeEncodeError 崩溃
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(errors="replace")
+        except Exception:
+            pass
+
     print(f"\n  智序者 Web UI 启动中...")
 
     # 尝试预初始化
@@ -574,7 +581,7 @@ def main(port: int = 8080):
     if agent is not None:
         print(f"  Agent 就绪（{agent.tool_count} 个工具，{agent.skill_count} 个技能）")
     else:
-        print(f"  ⚠️  Agent 未就绪: {_agent_error}")
+        print(f"  [!] Agent 未就绪: {_agent_error}")
         print(f"  打开浏览器后将引导设置 API Key")
 
     print(f"\n  打开浏览器访问: http://localhost:{port}\n")

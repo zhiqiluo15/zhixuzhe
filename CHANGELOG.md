@@ -660,3 +660,13 @@
 - **遗留（P1/P2，远期）**：
   - SSRF DNS rebinding 加固（pin resolved IP）——CHANGELOG P2-2 已标注，本次未动。
   - `run_shell` 命令白名单——维持"靠 HITL 兜底"现状，CSRF 链斩断后风险回到"用户自己批准危险命令"的责任边界。
+
+### 启动崩溃修复：GBK 控制台 emoji 编码（2026-08-07）
+
+- **问题**：双击 `run_web.bat` 启动时 `UnicodeEncodeError: 'gbk' codec can't encode character '\u26a0'`，服务起不来；但终端直跑正常。
+- **根因**：与 CHANGELOG 已记录的 .bat 编码坑同源——双击 .bat 走 cmd，代码页 936（GBK），Python 的 stdout/stderr 编码随之为 GBK。`main()` 中 `print(f"  ⚠️  Agent 未就绪...")` 的 `⚠️`（U+26A0）GBK 无法编码 → 启动即崩。终端（PowerShell 7，UTF-8）无此问题，故"终端正常、双击崩溃"的差异现象极具迷惑性。
+- **修复**（[web_server.py](engine/web_server.py)）：
+  1. `main()` 开头对 stdout/stderr 统一 `reconfigure(errors="replace")`——任何代码页下 emoji 都无法再触发崩溃（不可编码字符降级为 `?`）。
+  2. 启动打印中的 `⚠️` 替换为普通文本 `[!]`，GBK 下显示也干净。
+- **排查发现**：全项目生产代码仅 [web_server.py](engine/web_server.py) 启动路径有 emoji print；orchestrator 的 `✅` 在 web 模式走 callback 不进 stdout，CLI 模式走 PowerShell（UTF-8），均不受影响。测试文件的 emoji print 不参与启动。
+- **验证**：`PYTHONIOENCODING=gbk` 模拟 cmd 环境——单点 print emoji 不崩溃；服务正常启动并响应 `/status`；测试套件 20/20 全绿。
