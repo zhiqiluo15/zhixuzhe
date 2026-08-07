@@ -1,4 +1,4 @@
-# 智序者 v1 配置文件
+# 智序者 v1.1 配置文件
 # 所有路径相对于项目根目录
 
 # ── 模型 ──
@@ -7,7 +7,7 @@ model:
   model: deepseek-v4-pro
   base_url: https://api.deepseek.com/v1
   temperature: 0.7
-  max_tokens: 4096
+  max_tokens: 16384  # 2026-08-07 从 4096 提高，避免长回复被截断。DeepSeek V4 Pro 支持 32K 输出
   request_timeout: 60
   max_retries: 3
 

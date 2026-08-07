@@ -348,11 +348,15 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
 
         confirm_callback = _make_web_confirm_callback(sse_write)
 
+        def tool_callback(event_type: str, data: dict) -> None:
+            sse_write(event_type, data)
+
         try:
             response = agent.run(
                 message,
                 stream_callback=stream_callback,
                 confirm_callback=confirm_callback,
+                tool_callback=tool_callback,
             )
             sse_write("done", {"content": response})
         except Exception as e:

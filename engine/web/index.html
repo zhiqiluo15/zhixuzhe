@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>智序者 zhixuzhe v1</title>
+<title>鏅哄簭鑰?zhixuzhe v1</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -16,13 +16,13 @@ body {
   display: flex; flex-direction: column;
 }
 
-/* ── 星空画布 ── */
+/* 鈹€鈹€ 鏄熺┖鐢诲竷 鈹€鈹€ */
 #stars {
   position: fixed; top:0; left:0; width:100%; height:100%;
   z-index: 0; pointer-events: none;
 }
 
-/* ── 头部 ── */
+/* 鈹€鈹€ 澶撮儴 鈹€鈹€ */
 header {
   position: relative; z-index: 1;
   background: linear-gradient(180deg, rgba(4,4,18,0.97) 50%, rgba(4,4,18,0));
@@ -49,7 +49,7 @@ header .actions button {
 header .actions button:hover { background: rgba(167,139,250,0.15); color: #ccc; border-color: rgba(167,139,250,0.3); }
 header .actions button.active { background: rgba(167,139,250,0.18); border-color: #8b5cf6; color: #c4b5fd; }
 
-/* ── 聊天区域 ── */
+/* 鈹€鈹€ 鑱婂ぉ鍖哄煙 鈹€鈹€ */
 #chat {
   position: relative; z-index: 1;
   flex: 1; overflow-y: auto; padding: 12px 20px 110px;
@@ -59,7 +59,7 @@ header .actions button.active { background: rgba(167,139,250,0.18); border-color
 #chat::-webkit-scrollbar-track { background: transparent; }
 #chat::-webkit-scrollbar-thumb { background: rgba(167,139,250,0.15); border-radius: 2px; }
 
-/* ── 消息气泡 ── */
+/* 鈹€鈹€ 娑堟伅姘旀场 鈹€鈹€ */
 .msg {
   display: flex; gap: 10px; max-width: 82%;
   animation: fadeIn 0.35s ease;
@@ -73,7 +73,75 @@ header .actions button.active { background: rgba(167,139,250,0.18); border-color
   color: #8b83ba; font-size: 12px; border-radius: 8px;
 }
 
-/* ── SVG 头像 ── */
+/* ── 工具调用消息 ── */
+.msg.tool {
+  align-self: flex-start; max-width: 88%;
+}
+.msg.tool .tool-msg {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 8px 12px; border-radius: 10px;
+  font-size: 12px; line-height: 1.5;
+  animation: fadeIn 0.3s ease;
+}
+.msg.tool .tool-msg.tool-start {
+  background: rgba(251,191,36,0.06); border: 1px solid rgba(251,191,36,0.15);
+  color: #d4a853;
+}
+.msg.tool .tool-msg.tool-end {
+  background: rgba(52,211,153,0.06); border: 1px solid rgba(52,211,153,0.12);
+  color: #6bbf9a;
+}
+.msg.tool .tool-msg.tool-cancelled {
+  background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.15);
+  color: #d47272;
+}
+.msg.tool .tool-icon {
+  font-size: 14px; flex-shrink: 0; margin-top: 1px;
+}
+.msg.tool .tool-body { flex: 1; min-width: 0; }
+.msg.tool .tool-name {
+  font-weight: 600; font-family: "Consolas", "Cascadia Code", monospace;
+  color: #c4b5fd;
+}
+.msg.tool .tool-args {
+  color: #888; font-size: 11px; word-break: break-all;
+  margin-top: 2px;
+}
+.msg.tool .tool-result {
+  color: #aaa; font-size: 11px; margin-top: 3px;
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 60px; overflow: hidden;
+}
+.msg.tool .tool-truncated-tag {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 6px; background: rgba(251,191,36,0.12); color: #d4a853;
+  margin-left: 6px;
+}
+
+/* ── 思考动画 ── */
+.thinking-dots {
+  display: inline-flex; gap: 3px; align-items: center;
+}
+.thinking-dots span {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: #a78bfa;
+  animation: dotPulse 1.2s infinite ease-in-out;
+}
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes dotPulse {
+  0%, 80%, 100% { opacity: 0.2; transform: scale(0.7); }
+  40% { opacity: 1; transform: scale(1); }
+}
+
+/* ── 截断警告 ── */
+.truncation-warning {
+  display: inline-block; padding: 4px 10px; border-radius: 6px;
+  background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.2);
+  color: #d4a853; font-size: 11px; margin-top: 6px;
+}
+
+/* 鈹€鈹€ SVG 澶村儚 鈹€鈹€ */
 .avatar {
   width: 34px; height: 34px; border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
@@ -106,7 +174,7 @@ header .actions button.active { background: rgba(167,139,250,0.18); border-color
   border-bottom-left-radius: 5px;
 }
 
-/* ── Markdown 渲染样式 ── */
+/* 鈹€鈹€ Markdown 娓叉煋鏍峰紡 鈹€鈹€ */
 .rendered-md table {
   border-collapse: collapse; margin: 8px 0; font-size: 13px; width: 100%;
 }
@@ -142,14 +210,14 @@ header .actions button.active { background: rgba(167,139,250,0.18); border-color
   color: #999; margin: 6px 0;
 }
 
-/* 打字光标 */
+/* 鎵撳瓧鍏夋爣 */
 .bubble.streaming::after {
-  content: "▍"; animation: blink 0.8s infinite;
+  content: "鈻?; animation: blink 0.8s infinite;
   color: #a78bfa;
 }
 @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
 
-/* ── 输入区 ── */
+/* 鈹€鈹€ 杈撳叆鍖?鈹€鈹€ */
 footer {
   position: relative; z-index: 1;
   padding: 0 20px 18px; flex-shrink: 0;
@@ -183,7 +251,7 @@ footer .hint {
   margin-top: 7px; letter-spacing: 0.3px;
 }
 
-/* ── API Key 设置覆盖层 ── */
+/* 鈹€鈹€ API Key 璁剧疆瑕嗙洊灞?鈹€鈹€ */
 #setup-overlay {
   position: fixed; top:0; left:0; width:100%; height:100%;
   z-index: 100;
@@ -234,7 +302,7 @@ footer .hint {
 #setup-overlay .setup-status {
   font-size: 12px; color: #555; min-height: 18px;
 }
-/* ── HITL 确认覆盖层 ── */
+/* 鈹€鈹€ HITL 纭瑕嗙洊灞?鈹€鈹€ */
 #confirm-overlay {
   position: fixed; top:0; left:0; width:100%; height:100%;
   z-index: 90;
@@ -288,51 +356,50 @@ footer .hint {
 
 <canvas id="stars"></canvas>
 
-<!-- API Key 设置覆盖层 -->
+<!-- API Key 璁剧疆瑕嗙洊灞?-->
 <div id="setup-overlay">
   <div class="setup-icon">
     <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
   </div>
-  <h2>设置 DeepSeek API Key</h2>
+  <h2>璁剧疆 DeepSeek API Key</h2>
   <div class="setup-desc">
-    智序者需要 DeepSeek API Key 才能运行。<br>
-    前往 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">platform.deepseek.com</a> 获取。<br>
-    Key 会安全保存在项目 .env 文件中，不会上传。
-  </div>
+    鏅哄簭鑰呴渶瑕?DeepSeek API Key 鎵嶈兘杩愯銆?br>
+    鍓嶅線 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">platform.deepseek.com</a> 鑾峰彇銆?br>
+    Key 浼氬畨鍏ㄤ繚瀛樺湪椤圭洰 .env 鏂囦欢涓紝涓嶄細涓婁紶銆?  </div>
   <div class="setup-input">
     <input type="password" id="api-key-input" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
       onkeydown="if(event.key==='Enter')submitSetup()">
-    <button onclick="submitSetup()">确认</button>
+    <button onclick="submitSetup()">纭</button>
   </div>
   <div class="setup-error" id="setup-error"></div>
   <div class="setup-status" id="setup-status"></div>
 </div>
 
-<!-- HITL 确认覆盖层 -->
+<!-- HITL 纭瑕嗙洊灞?-->
 <div id="confirm-overlay">
   <div class="confirm-card">
-    <div class="confirm-title">⚠️ 工具调用确认</div>
+    <div class="confirm-title">鈿狅笍 宸ュ叿璋冪敤纭</div>
     <div class="confirm-tool" id="confirm-tool-name"></div>
     <div class="confirm-args" id="confirm-tool-args"></div>
     <div class="confirm-buttons">
-      <button class="btn-deny" onclick="respondConfirm(false)">拒绝</button>
-      <button class="btn-approve" onclick="respondConfirm(true)">允许执行</button>
+      <button class="btn-deny" onclick="respondConfirm(false)">鎷掔粷</button>
+      <button class="btn-approve" onclick="respondConfirm(true)">鍏佽鎵ц</button>
     </div>
   </div>
 </div>
 
 <header>
-  <h1>智序者 zhixuzhe</h1>
+  <h1>鏅哄簭鑰?zhixuzhe</h1>
   <span class="badge">v1</span>
-  <span class="subtitle">DeepSeek · 流式</span>
+  <span class="subtitle">DeepSeek 路 娴佸紡</span>
   <div class="actions">
-    <button id="taskBtn" onclick="toggleTaskMode()" title="切换任务模式">
+    <button id="taskBtn" onclick="toggleTaskMode()" title="鍒囨崲浠诲姟妯″紡">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-      任务
+      浠诲姟
     </button>
-    <button onclick="resetChat()" title="重置对话">
+    <button onclick="resetChat()" title="閲嶇疆瀵硅瘽">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-      重置
+      閲嶇疆
     </button>
   </div>
 </header>
@@ -342,24 +409,22 @@ footer .hint {
     <div class="avatar assistant-av">
       <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
     </div>
-    <div class="bubble assistant-bub" id="greeting-bubble">你好，我是智序者。有什么可以帮你？</div>
+    <div class="bubble assistant-bub" id="greeting-bubble">浣犲ソ锛屾垜鏄櫤搴忚€呫€傛湁浠€涔堝彲浠ュ府浣狅紵</div>
   </div>
 </div>
 
 <footer>
   <div class="input-box">
-    <textarea id="input" rows="1" placeholder="输入消息..."
+    <textarea id="input" rows="1" placeholder="杈撳叆娑堟伅..."
       onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea>
-    <button id="sendBtn" onclick="send()">发送</button>
+    <button id="sendBtn" onclick="send()">鍙戦€?/button>
   </div>
-  <div class="hint" id="hint">Enter 发送，Shift+Enter 换行</div>
+  <div class="hint" id="hint">Enter 鍙戦€侊紝Shift+Enter 鎹㈣</div>
 </footer>
 
 <script>
-// ═══════════════════════════════════════
-//  API Key 设置流程
-// ═══════════════════════════════════════
-const setupOverlay = document.getElementById('setup-overlay');
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?//  API Key 璁剧疆娴佺▼
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?const setupOverlay = document.getElementById('setup-overlay');
 const apiKeyInput = document.getElementById('api-key-input');
 const setupError = document.getElementById('setup-error');
 const setupStatus = document.getElementById('setup-status');
@@ -372,11 +437,11 @@ async function checkStatus() {
       setupOverlay.classList.add('hidden');
     } else {
       setupOverlay.classList.remove('hidden');
-      setupStatus.textContent = '请设置 API Key 以继续';
+      setupStatus.textContent = '璇疯缃?API Key 浠ョ户缁?;
     }
   } catch (e) {
     setupOverlay.classList.remove('hidden');
-    setupStatus.textContent = '无法连接到服务，请确认服务器正在运行';
+    setupStatus.textContent = '鏃犳硶杩炴帴鍒版湇鍔★紝璇风‘璁ゆ湇鍔″櫒姝ｅ湪杩愯';
   }
 }
 
@@ -384,17 +449,17 @@ async function submitSetup() {
   const key = apiKeyInput.value.trim();
   if (!key) {
     setupError.style.display = 'block';
-    setupError.textContent = '请输入 API Key';
+    setupError.textContent = '璇疯緭鍏?API Key';
     return;
   }
   if (!key.startsWith('sk-')) {
     setupError.style.display = 'block';
-    setupError.textContent = 'API Key 格式不正确，应以 sk- 开头';
+    setupError.textContent = 'API Key 鏍煎紡涓嶆纭紝搴斾互 sk- 寮€澶?;
     return;
   }
 
   setupError.style.display = 'none';
-  setupStatus.textContent = '正在验证...';
+  setupStatus.textContent = '姝ｅ湪楠岃瘉...';
 
   try {
     const resp = await fetch('/setup', {
@@ -405,27 +470,26 @@ async function submitSetup() {
     const data = await resp.json();
 
     if (resp.ok) {
-      setupStatus.textContent = `设置成功！（${data.tools} 工具，${data.skills} 技能）`;
+      setupStatus.textContent = `璁剧疆鎴愬姛锛侊紙${data.tools} 宸ュ叿锛?{data.skills} 鎶€鑳斤級`;
       setTimeout(() => {
         setupOverlay.classList.add('hidden');
         inputEl.focus();
       }, 1000);
     } else {
       setupError.style.display = 'block';
-      setupError.textContent = '设置失败: ' + (data.error || '未知错误');
+      setupError.textContent = '璁剧疆澶辫触: ' + (data.error || '鏈煡閿欒');
       setupStatus.textContent = '';
     }
   } catch (e) {
     setupError.style.display = 'block';
-    setupError.textContent = '网络错误: ' + e.message;
+    setupError.textContent = '缃戠粶閿欒: ' + e.message;
     setupStatus.textContent = '';
   }
 }
 
-// 页面加载时检查状态
-checkStatus();
+// 椤甸潰鍔犺浇鏃舵鏌ョ姸鎬?checkStatus();
 
-// ── HITL 确认 ──
+// 鈹€鈹€ HITL 纭 鈹€鈹€
 let currentConfirmId = null;
 
 function showConfirmDialog(id, toolName, args) {
@@ -447,23 +511,21 @@ function respondConfirm(approved) {
   }
 }
 
-// 渲染初始问候语
+// 娓叉煋鍒濆闂€欒
 (function initGreeting() {
   const gb = document.getElementById('greeting-bubble');
   if (gb && typeof marked !== 'undefined') {
     gb.innerHTML = `<div class="rendered-md">${renderMarkdown(gb.textContent)}</div>`;
   } else if (gb) {
-    // marked.js 尚未加载，监听加载后渲染
+    // marked.js 灏氭湭鍔犺浇锛岀洃鍚姞杞藉悗娓叉煋
     document.querySelector('script[src*="marked"]').addEventListener('load', () => {
       gb.innerHTML = `<div class="rendered-md">${renderMarkdown(gb.textContent)}</div>`;
     });
   }
 })();
 
-// ═══════════════════════════════════════
-//  星空背景（暗色调 + 低亮度）
-// ═══════════════════════════════════════
-const canvas = document.getElementById('stars');
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?//  鏄熺┖鑳屾櫙锛堟殫鑹茶皟 + 浣庝寒搴︼級
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?const canvas = document.getElementById('stars');
 const ctx = canvas.getContext('2d');
 let stars = [];
 let w, h;
@@ -495,7 +557,7 @@ initStars();
 function drawStars(time) {
   ctx.clearRect(0, 0, w, h);
 
-  // 深层夜空渐变
+  // 娣卞眰澶滅┖娓愬彉
   const g = ctx.createRadialGradient(w/2, h/4, 0, w/2, h, w*0.8);
   g.addColorStop(0, 'rgba(8,6,24,0.2)');
   g.addColorStop(0.5, 'rgba(4,3,14,0.25)');
@@ -515,7 +577,7 @@ function drawStars(time) {
     ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
     ctx.fill();
 
-    // 稀疏微辉光
+    // 绋€鐤忓井杈夊厜
     if (s.r > 1.0 && alpha > 0.5) {
       ctx.fillStyle = `rgba(150,170,220,${alpha * 0.06})`;
       ctx.beginPath();
@@ -531,10 +593,8 @@ function animate(time) {
 }
 requestAnimationFrame(animate);
 
-// ═══════════════════════════════════════
-//  聊天逻辑
-// ═══════════════════════════════════════
-const chatEl = document.getElementById('chat');
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?//  鑱婂ぉ閫昏緫
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?const chatEl = document.getElementById('chat');
 const inputEl = document.getElementById('input');
 const sendBtn = document.getElementById('sendBtn');
 const taskBtn = document.getElementById('taskBtn');
@@ -545,21 +605,21 @@ function scrollBottom() {
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
-// ── Markdown 渲染 + XSS 防护 ──
+// 鈹€鈹€ Markdown 娓叉煋 + XSS 闃叉姢 鈹€鈹€
 
 function renderMarkdown(text) {
   if (typeof marked === 'undefined') return text;
   return marked.parse(text, { breaks: true, gfm: true });
 }
 
-// 转义纯文本为 HTML 安全字符串（用于 user 消息、流式初始内容）
+// 杞箟绾枃鏈负 HTML 瀹夊叏瀛楃涓诧紙鐢ㄤ簬 user 娑堟伅銆佹祦寮忓垵濮嬪唴瀹癸級
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
 }
 
-// 白名单清理 HTML：移除危险元素和事件属性，防 markdown 渲染后的内联 HTML 注入
+// 鐧藉悕鍗曟竻鐞?HTML锛氱Щ闄ゅ嵄闄╁厓绱犲拰浜嬩欢灞炴€э紝闃?markdown 娓叉煋鍚庣殑鍐呰仈 HTML 娉ㄥ叆
 function sanitizeHtml(html) {
   const tmp = document.createElement('div');
   tmp.innerHTML = html;
@@ -579,7 +639,7 @@ function sanitizeHtml(html) {
   return tmp.innerHTML;
 }
 
-// 安全渲染：markdown → sanitize
+// 瀹夊叏娓叉煋锛歮arkdown 鈫?sanitize
 function renderMarkdownSafe(text) {
   return sanitizeHtml(renderMarkdown(text));
 }
@@ -591,7 +651,7 @@ function finalizeBubble(bubble) {
   bubble.innerHTML = `<div class="rendered-md">${renderMarkdownSafe(raw)}</div>`;
 }
 
-// 头像 SVG 内联
+// 澶村儚 SVG 鍐呰仈
 const USER_AVATAR_SVG = '<svg viewBox="0 0 24 24"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v1.2c0 .66.54 1.2 1.2 1.2h16.8c.66 0 1.2-.54 1.2-1.2v-1.2c0-3.2-6.4-4.8-9.6-4.8z"/></svg>';
 const AI_AVATAR_SVG = '<svg viewBox="0 0 24 24"><path d="M12 2l2.4 7.2h7.6l-6 4.8 2.4 7.2-6.4-4.8-6.4 4.8 2.4-7.2-6-4.8h7.6z"/><path d="M12 2l2.4 7.2h7.6l-6 4.8 2.4 7.2-6.4-4.8-6.4 4.8 2.4-7.2-6-4.8h7.6z" fill="rgba(255,255,255,0.15)"/></svg>';
 
@@ -600,15 +660,14 @@ function addMessage(role, content, streaming=false) {
   div.className = `msg ${role}`;
 
   if (role === 'system') {
-    // system 消息渲染 markdown（支持 **加粗** 等），经 sanitize 防 XSS
+    // system 娑堟伅娓叉煋 markdown锛堟敮鎸?**鍔犵矖** 绛夛級锛岀粡 sanitize 闃?XSS
     div.innerHTML = `<div class="bubble">${renderMarkdownSafe(content)}</div>`;
   } else {
     const avatarClass = role === 'user' ? 'user-av' : 'assistant-av';
     const bubbleClass = role === 'user' ? 'user-bub' : 'assistant-bub';
     const avatarSvg = role === 'user' ? USER_AVATAR_SVG : AI_AVATAR_SVG;
     const isAssistant = role === 'assistant';
-    // user 消息纯文本转义；assistant 非流式渲染 markdown；流式用转义文本（后续 textContent 累积）
-    let rendered;
+    // user 娑堟伅绾枃鏈浆涔夛紱assistant 闈炴祦寮忔覆鏌?markdown锛涙祦寮忕敤杞箟鏂囨湰锛堝悗缁?textContent 绱Н锛?    let rendered;
     if (isAssistant && !streaming) {
       rendered = `<div class="rendered-md">${renderMarkdownSafe(content)}</div>`;
     } else {
@@ -624,6 +683,60 @@ function addMessage(role, content, streaming=false) {
   return div;
 }
 
+// 添加工具调用消息（chat 模式下可见的工具调用进度）
+function addToolMessage(eventType, data) {
+  const div = document.createElement('div');
+  div.className = 'msg tool';
+  div.setAttribute('data-tool-name', data.tool_name);
+
+  const roundLabel = data.round ? `[轮${data.round}] ` : '';
+
+  if (eventType === 'tool_start') {
+    const argsStr = JSON.stringify(data.args);
+    div.innerHTML = `
+      <div class="tool-msg tool-start">
+        <span class="tool-icon">🔧</span>
+        <div class="tool-body">
+          <span class="tool-name">${escapeHtml(roundLabel + data.tool_name)}</span>
+          <div class="tool-args">${escapeHtml(argsStr.length > 120 ? argsStr.slice(0, 120) + '...' : argsStr)}</div>
+        </div>
+      </div>`;
+  } else if (eventType === 'tool_end') {
+    const statusClass = data.cancelled ? 'tool-cancelled' : 'tool-end';
+    const icon = data.cancelled ? '❌' : '✅';
+    let resultHtml = '';
+    if (data.result_preview) {
+      resultHtml = `<div class="tool-result">${escapeHtml(data.result_preview)}</div>`;
+    }
+    const truncatedTag = data.truncated ? '<span class="tool-truncated-tag">已截断</span>' : '';
+    div.innerHTML = `
+      <div class="tool-msg ${statusClass}">
+        <span class="tool-icon">${icon}</span>
+        <div class="tool-body">
+          <span class="tool-name">${escapeHtml(roundLabel + data.tool_name)}${truncatedTag}</span>
+          ${resultHtml}
+        </div>
+      </div>`;
+  }
+  chatEl.appendChild(div);
+  scrollBottom();
+  return div;
+}
+
+// 思考指示器 —— 用 system 消息显示动画点
+let thinkingEl = null;
+function showThinking() {
+  if (thinkingEl) return;
+  thinkingEl = document.createElement('div');
+  thinkingEl.className = 'msg system';
+  thinkingEl.innerHTML = '<div class="bubble" style="display:flex;align-items:center;gap:8px;font-size:12px;color:#8b83ba;">AI 思考中<span class="thinking-dots"><span></span><span></span><span></span></span></div>';
+  chatEl.appendChild(thinkingEl);
+  scrollBottom();
+}
+function hideThinking() {
+  if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+}
+
 function setHint(text) {
   document.getElementById('hint').textContent = text;
 }
@@ -631,8 +744,8 @@ function setHint(text) {
 function toggleTaskMode() {
   isTaskMode = !isTaskMode;
   taskBtn.classList.toggle('active', isTaskMode);
-  inputEl.placeholder = isTaskMode ? '输入任务目标...' : '输入消息...';
-  setHint(isTaskMode ? '任务模式：智序者将自主规划并执行' : 'Enter 发送，Shift+Enter 换行');
+  inputEl.placeholder = isTaskMode ? '杈撳叆浠诲姟鐩爣...' : '杈撳叆娑堟伅...';
+  setHint(isTaskMode ? '浠诲姟妯″紡锛氭櫤搴忚€呭皢鑷富瑙勫垝骞舵墽琛? : 'Enter 鍙戦€侊紝Shift+Enter 鎹㈣');
 }
 
 async function send() {
@@ -645,6 +758,7 @@ async function send() {
 
   addMessage('user', text);
   setHint('思考中...');
+  showThinking();
 
   const endpoint = isTaskMode ? '/task' : '/chat';
   const bodyKey = isTaskMode ? 'goal' : 'message';
@@ -657,6 +771,7 @@ async function send() {
     });
 
     if (!resp.ok) {
+      hideThinking();
       addMessage('system', `请求失败: HTTP ${resp.status}`);
       isStreaming = false; sendBtn.disabled = false; setHint('');
       return;
@@ -666,6 +781,7 @@ async function send() {
     const decoder = new TextDecoder();
     let buffer = '';
     let bubble = null;
+    let hasToolCalls = false;  // 跟踪本轮是否有工具调用
 
     while (true) {
       const { done, value } = await reader.read();
@@ -681,6 +797,7 @@ async function send() {
           const data = JSON.parse(block.slice(6));
 
           if (data.type === 'text') {
+            hideThinking();
             if (!bubble) {
               const div = addMessage('assistant', data.content, true);
               bubble = div.querySelector('.bubble');
@@ -689,37 +806,62 @@ async function send() {
             }
             scrollBottom();
 
+          } else if (data.type === 'tool_start') {
+            // 工具调用开始 —— 展示进度，打破黑箱
+            hasToolCalls = true;
+            hideThinking();
+            addToolMessage('tool_start', data);
+
+          } else if (data.type === 'tool_end') {
+            // 工具调用完成 —— 更新结果
+            addToolMessage('tool_end', data);
+            // 工具完成后可能还要等 Brain 思考，显示思考指示器
+            showThinking();
+
           } else if (data.type === 'done') {
+            hideThinking();
             if (bubble) {
               bubble.classList.remove('streaming');
               finalizeBubble(bubble);
             }
             setHint('');
+            // 检查是否可能被截断（max_tokens 耗尽）
+            if (data.content && data.content.includes('[已达到最大工具调用轮次')) {
+              addMessage('system', '⚠️ 已达到工具调用上限，回复可能不完整');
+            }
 
           } else if (data.type === 'task_start') {
+            hideThinking();
             addMessage('system', `**目标：** ${data.goal}`);
 
           } else if (data.type === 'task_step') {
             addMessage('system', data.content);
 
           } else if (data.type === 'task_done') {
+            hideThinking();
             addMessage('assistant', data.content);
             setHint('');
 
           } else if (data.type === 'error') {
+            hideThinking();
             addMessage('system', `错误: ${data.content}`);
             setHint('');
 
           } else if (data.type === 'confirm_request') {
             showConfirmDialog(data.id, data.tool_name, data.args);
           }
-        } catch (e) {}
+        } catch (e) {
+          // 不再静默丢弃 —— 输出到控制台方便排查
+          console.error('[SSE] 解析失败:', e, '原始数据:', block.slice(0, 200));
+        }
       }
     }
 
+    hideThinking();
     if (bubble) bubble.classList.remove('streaming');
 
   } catch (e) {
+    hideThinking();
     addMessage('system', `连接错误: ${e.message}`);
     setHint('');
   }
@@ -734,9 +876,9 @@ async function resetChat() {
   try {
     await fetch('/reset', { method: 'POST' });
     chatEl.innerHTML = '';
-    addMessage('assistant', '对话已重置。有什么可以帮你？');
+    addMessage('assistant', '瀵硅瘽宸查噸缃€傛湁浠€涔堝彲浠ュ府浣狅紵');
   } catch (e) {
-    addMessage('system', '重置失败');
+    addMessage('system', '閲嶇疆澶辫触');
   }
 }
 </script>

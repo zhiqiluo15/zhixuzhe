@@ -9,7 +9,7 @@ from engine.brain.base import Brain, Message
 from engine.tools.registry import ToolRegistry
 from engine.skills.registry import SkillRegistry
 from engine.core.recorder import Recorder
-from engine.core.react import react_loop, ConfirmCallback, StreamCallback
+from engine.core.react import react_loop, ConfirmCallback, StreamCallback, ToolEventCallback
 from engine.core.task import TaskRunner
 from engine.core.history import HistoryStore
 from engine.core.memory_manager import MemoryManager
@@ -106,6 +106,7 @@ class Agent:
         user_input: str,
         stream_callback: StreamCallback | None = None,
         confirm_callback: ConfirmCallback | None = None,
+        tool_callback: ToolEventCallback | None = None,
     ) -> str:
         """单次交互：接收用户输入，返回响应。
 
@@ -113,6 +114,7 @@ class Agent:
             user_input: 用户消息
             stream_callback: 可选流式回调。None 时默认 terminal 打印。
             confirm_callback: 可选 HITL 确认回调。显式传入 > CLI 默认 > None。
+            tool_callback: 可选工具事件回调。工具调用前后触发，用于前端展示进度。
         """
         user_msg = Message(role="user", content=user_input)
 
@@ -156,6 +158,7 @@ class Agent:
             self.brain, messages, self.tools,
             confirm_callback=hitl_cb,
             stream_callback=cb,
+            tool_callback=tool_callback,
         )
 
         # CLI 模式换行

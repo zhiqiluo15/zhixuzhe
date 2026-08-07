@@ -594,3 +594,37 @@
 - **验证**：web_search 实搜索测 DeepSeek API 文档、QLoRA 微调教程中文结果正常；Router 15 个测试用例全通过（7 个命中 web_research、5 个命中 hardware_check、3 个不命中）；测试 20/20 全绿；无空会话文件残留。
 - **经验沉淀机制验证**：本次任务是 P1-1 经验反思的首次实战——_reflect_experience 在任务完成后自动触发，但因当前无 API Key 实际调用会失败（不阻断主流程），待用户提供有效 Key 后即可运行。
 - **后续**：code_search_explore（需先新增 search_file/grep 工具）、data_analysis_visual、file_manage_batch，以及 hardware_check → environment_check 扩展（合并原规划的 environment_setup_check）。
+
+---
+
+### Web 体验优化：打破黑箱 + 减截断 + 思考动画（2026-08-07）
+
+- **动机**：用户反馈 Web 端体验差——消息频繁截断、AI 工作过程纯黑箱（工具调用不可见）、等待体感差（无进度指示）。
+- **根因分析**：
+  1. **截断**：`config.yaml` 中 `max_tokens: 4096` 太低，长回复被 API 硬截断；前端 SSE 解析 `catch (e) {}` 静默丢弃异常，部分事件丢失。
+  2. **黑箱**：`react_loop` 的工具调用过程对前端完全不可见——chat 模式只推文本，不推工具调用事件。
+  3. **等待体感差**：工具执行期间前端无任何进度指示，只显示静态"思考中..."。
+- **修复**：
+
+  #### 后端：工具调用事件管道
+  - **`config.yaml`**：`max_tokens` 从 4096 → 16384（4x），充分利用 DeepSeek V4 Pro 的 32K 输出能力。
+  - **`engine/core/react.py`**：新增 `ToolEventCallback` 类型 + `tool_callback` 参数。工具调用前后触发 `tool_start`（工具名/参数/轮次）和 `tool_end`（结果预览/截断标记/取消标记）事件。
+  - **`engine/core/loop.py`**：`Agent.run()` 新增 `tool_callback` 参数并透传 `react_loop`。
+  - **`engine/web_server.py`**：`_handle_chat()` 中创建 `tool_callback` 闭包，将 `tool_start`/`tool_end` 事件通过 SSE 推送给前端。
+
+  #### 前端：可见进度 + 思考动画 + 健壮解析
+  - **工具调用可见**：新增 `addToolMessage()` 函数渲染工具调用卡片——`tool_start`（🔧 橙色，工具名+参数）、`tool_end`（✅ 绿色，结果预览 + 截断标签）。chat 模式下工具调用不再黑箱。
+  - **思考动画**：新增 `showThinking()`/`hideThinking()` + CSS 三点脉冲动画（`.thinking-dots`）。工具调用间隙和初始等待时显示"AI 思考中..."带动画，打破纯静态等待。
+  - **截断感知**：工具结果截断时显示"已截断"标签；`done` 事件中检测轮次耗尽警告。
+  - **错误处理**：SSE 解析失败不再静默丢弃，改为 `console.error` 输出调试信息。
+  - **CSS 新增**：`.tool-msg`（工具卡片三态：start/end/cancelled）、`.thinking-dots`（脉冲动画）、`.truncation-warning`（截断警告）。
+
+- **影响范围**：
+  - `react_loop` 签名新增可选参数 `tool_callback`，向后兼容（`None` 时行为不变）
+  - `Agent.run()` 签名新增可选参数 `tool_callback`，向后兼容
+  - 前端大幅增强，CSS + JS 均有新增，但不影响已有功能
+- **测试**：20/20 全绿；import 链健康。
+- **设计原则**：
+  - **渐进披露**：工具调用默认展示摘要（参数截断 120 字符、结果预览 200 字符），不淹没对话流
+  - **思考指示器做减法**：首次文本到达时自动隐藏（`hideThinking()`），避免干扰实际内容
+  - **事件驱动而非轮询**：利用已有 SSE 管道，不新增 WebSocket 或轮询机制

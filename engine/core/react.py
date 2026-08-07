@@ -22,6 +22,11 @@ ConfirmCallback = Callable[[str, dict], bool]
 # 流式回调类型：接收文本块（str），用于实时显示
 StreamCallback = Callable[[str], None]
 
+# 工具事件回调类型：接收 (event_type, data)，用于前端展示工具调用过程
+# event_type: "tool_start" | "tool_end" | "tool_truncated"
+# data: {"tool_name": str, "args": dict, "round": int, ...}
+ToolEventCallback = Callable[[str, dict], None]
+
 
 def _get_response(
     brain: Brain,
@@ -54,6 +59,7 @@ def react_loop(
     max_rounds: int | None = None,
     confirm_callback: ConfirmCallback | None = None,
     stream_callback: StreamCallback | None = None,
+    tool_callback: ToolEventCallback | None = None,
 ) -> Message:
     """执行一次 ReAct 循环：思考 → 工具调用 → 执行 → 再思考，返回最终 Message。
 
@@ -61,6 +67,7 @@ def react_loop(
         max_rounds: 最大工具调用轮次，None 则使用 config.agent.max_tool_rounds
         confirm_callback: 可选 HITL 确认回调
         stream_callback: 可选流式回调，每收到一个 token 文本块时触发
+        tool_callback: 可选工具事件回调，工具调用前后触发，用于前端展示进度
     """
     if max_rounds is None:
         max_rounds = config.agent.max_tool_rounds
@@ -84,16 +91,32 @@ def react_loop(
 
             logger.debug(f"工具调用 [轮次 {round_i + 1}]: {name}({args})")
 
+            if tool_callback is not None:
+                tool_callback("tool_start", {
+                    "tool_name": name, "args": args, "round": round_i + 1,
+                })
+
             if confirm_callback is not None and not confirm_callback(name, args):
                 result = f"[已取消] 用户拒绝了工具调用: {name}"
             else:
                 result = tools.execute(name, **args)
 
             max_chars = config.agent.max_tool_output_chars
-            if len(result) > max_chars:
+            truncated = len(result) > max_chars
+            if truncated:
                 result = result[:max_chars] + (
                     f"\n\n[已截断，原长度 {len(result)} 字符]"
                 )
+
+            if tool_callback is not None:
+                preview = result[:200] + ("..." if len(result) > 200 else "")
+                tool_callback("tool_end", {
+                    "tool_name": name,
+                    "result_preview": preview,
+                    "round": round_i + 1,
+                    "truncated": truncated,
+                    "cancelled": result.startswith("[已取消]"),
+                })
             messages.append(Message(
                 role="tool",
                 content=result,
