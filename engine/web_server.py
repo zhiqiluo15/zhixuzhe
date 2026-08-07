@@ -12,13 +12,20 @@ API:
   POST /chain      → SSE 流式技能链（{goal, skills: [...]}）
   POST /confirm     → HITL 确认响应
   POST /reset      → 重置对话
+
+安全设计（P0 三件套）：
+  1. CORS 收紧：仅允许本地源 http://127.0.0.1:<port> / http://localhost:<port>，杜绝跨域读取
+  2. Origin/Referer 校验：所有 POST 与 OPTIONS 预检强制校验来源，挡盲发请求
+  3. Session 绑定：GET / 下发 HttpOnly+SameSite=Strict cookie，/confirm 校验 session 与 confirm_id 一致，防跨会话代答
 """
 
 import json
 import os
+import secrets
 import sys
 import threading
 import uuid
+from http.cookies import SimpleCookie
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -33,7 +40,7 @@ _agent_error: str | None = None  # 初始化失败时的错误信息
 _agent_lock = threading.Lock()
 
 # ── HITL 确认状态 ──
-_pending_confirms: dict[str, dict] = {}  # confirm_id → {"event": threading.Event, "result": bool}
+_pending_confirms: dict[str, dict] = {}  # confirm_id → {"event", "result", "session_id"}
 _pending_confirms_lock = threading.Lock()  # 保护 _pending_confirms 的并发访问
 
 
@@ -97,17 +104,21 @@ def get_agent_status() -> dict:
     return {"ready": False, "error": _agent_error or "未初始化"}
 
 
-def _make_web_confirm_callback(sse_write):
-    """创建 Web 端 HITL 确认回调。
+def _make_web_confirm_callback(sse_write, session_id: str):
+    """创建 Web 端 HITL 确认回调（绑定 session_id）。
 
     通过 SSE 发送 confirm_request 事件给前端，用 threading.Event 等待用户响应。
-    60 秒超时未响应则自动拒绝。
+    60 秒超时未响应则自动拒绝。confirm_id 与 session_id 绑定，防止跨会话代答。
     """
     def confirm_callback(tool_name: str, args: dict) -> bool:
         confirm_id = str(uuid.uuid4())
         event = threading.Event()
         with _pending_confirms_lock:
-            _pending_confirms[confirm_id] = {"event": event, "result": False}
+            _pending_confirms[confirm_id] = {
+                "event": event,
+                "result": False,
+                "session_id": session_id,
+            }
         sse_write("confirm_request", {
             "id": confirm_id,
             "tool_name": tool_name,
@@ -149,12 +160,60 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-    # ── CORS + 公共头 ──
+    # ── CORS + 来源校验 ──
+
+    def _get_allowed_origins(self) -> set[str]:
+        """根据服务监听端口构造允许的本地源。"""
+        port = self.server.server_address[1]
+        return {
+            f"http://127.0.0.1:{port}",
+            f"http://localhost:{port}",
+        }
 
     def _cors(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
+        """CORS 头：仅回显本地源，拒绝跨域读取。"""
+        origin = self.headers.get("Origin", "")
+        if origin and origin in self._get_allowed_origins():
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Credentials", "true")
+
+    def _check_origin(self) -> bool:
+        """校验请求来源是否为本地源。Origin 优先，退化到 Referer。"""
+        allowed = self._get_allowed_origins()
+        origin = self.headers.get("Origin", "")
+        if origin:
+            return origin in allowed
+        referer = self.headers.get("Referer", "")
+        if referer:
+            return any(referer.startswith(a) for a in allowed)
+        return False
+
+    # ── Session 管理 ──
+
+    def _read_session_cookie(self) -> str | None:
+        """从 Cookie 头读取 session id。"""
+        cookie_header = self.headers.get("Cookie", "")
+        if not cookie_header:
+            return None
+        try:
+            cookie = SimpleCookie()
+            cookie.load(cookie_header)
+            morsel = cookie.get("session")
+            return morsel.value if morsel else None
+        except Exception:
+            return None
+
+    def _set_session_cookie(self, session_id: str):
+        """在响应头设置 session cookie（HttpOnly + SameSite=Strict 防 CSRF）。"""
+        self.send_header(
+            "Set-Cookie",
+            f"session={session_id}; Path=/; HttpOnly; SameSite=Strict",
+        )
+
+    # ── 公共响应头 ──
 
     def _ok(self, content_type="application/json"):
         self.send_response(200)
@@ -180,6 +239,11 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
     # ── Routing ──
 
     def do_OPTIONS(self):
+        # 预检请求：仅对本地源放行，挡住跨域预检
+        if not self._check_origin():
+            self.send_response(403)
+            self.end_headers()
+            return
         self.send_response(204)
         self._cors()
         self.end_headers()
@@ -196,6 +260,17 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             self._error(404, "Not Found")
 
     def do_POST(self):
+        # 来源校验：仅允许本地浏览器请求
+        if not self._check_origin():
+            self._error(403, "禁止跨域请求")
+            return
+        # session 校验：POST 必须带有效 session cookie（防 curl/脚本盲发）
+        session_id = self._read_session_cookie()
+        if not session_id:
+            self._error(403, "缺少 session，请通过浏览器访问")
+            return
+        self._session_id = session_id
+
         if self.path == "/setup":
             self._handle_setup()
         elif self.path == "/chat":
@@ -270,7 +345,7 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
     # ── HITL 确认 ──
 
     def _handle_confirm(self):
-        """处理前端 HITL 确认响应"""
+        """处理前端 HITL 确认响应（校验 session 一致，防跨会话代答）"""
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length))
@@ -285,6 +360,10 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             if pending is None:
                 self._error(404, "确认请求已过期或不存在")
                 return
+            # 关键校验：confirm_id 必须属于当前请求的 session
+            if pending.get("session_id") != self._session_id:
+                self._error(403, "session 不匹配，禁止代答")
+                return
             pending["result"] = approved
             pending["event"].set()
 
@@ -294,7 +373,14 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
     # ── 页面 ──
 
     def _serve_page(self):
-        self._ok("text/html")
+        # 首次访问下发 session cookie（HttpOnly + SameSite=Strict 防 CSRF）
+        session_id = self._read_session_cookie()
+        self.send_response(200)
+        self._cors()
+        if not session_id:
+            self._set_session_cookie(secrets.token_urlsafe(32))
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
         self.wfile.write(_load_page().encode())
 
     # ── 技能列表 ──
@@ -346,7 +432,7 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
         def stream_callback(chunk: str) -> None:
             sse_write("text", {"content": chunk})
 
-        confirm_callback = _make_web_confirm_callback(sse_write)
+        confirm_callback = _make_web_confirm_callback(sse_write, self._session_id)
 
         def tool_callback(event_type: str, data: dict) -> None:
             sse_write(event_type, data)
@@ -399,7 +485,7 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             def verbose_callback(msg: str) -> None:
                 sse_write("task_step", {"content": msg})
 
-            confirm_callback = _make_web_confirm_callback(sse_write)
+            confirm_callback = _make_web_confirm_callback(sse_write, self._session_id)
 
             response = agent.task_runner.run(
                 goal, verbose=True,
@@ -449,7 +535,7 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             def verbose_callback(msg: str) -> None:
                 sse_write("chain_step", {"content": msg})
 
-            confirm_callback = _make_web_confirm_callback(sse_write)
+            confirm_callback = _make_web_confirm_callback(sse_write, self._session_id)
 
             from engine.core.orchestrator import SkillChain
             chain = SkillChain(

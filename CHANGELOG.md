@@ -636,3 +636,27 @@
 - **问题**：网页显示中文乱码（如"智序者"显示为"鏅哄簭鑰?"）。
 - **根因**：`index.html` 原始 UTF-8 字节被中间工具误读为 GBK 编码后重新保存为 UTF-8，形成双重编码损坏。UTF-8 的 "智序者"（E6 99 BA E5 BA 8F E8 80 85）→ 被解读为 GBK 字节对 → 映射为错误的 Unicode 字符（鏅哄簭鑰?）→ 再编码为 UTF-8 写入文件。
 - **修复**：重写整个 `index.html`，确保所有中文文本为正确的 UTF-8 编码。验证：所有关键中文文本 ✓、UTF-8 往返无损坏、HTML 结构完整。
+
+### Web 安全加固 P0：斩断 CSRF 自动批准链（2026-08-07）
+
+- **动机**：[web_server.py](engine/web_server.py) 此前 CORS=`*` + 无来源校验 + `/confirm` 仅凭 id 批准，构成完整的 CSRF→RCE 攻击链——恶意网页（用户本机浏览器同时打开即可）能跨域读 `/chat` 的 SSE 流拿到 `confirm_id`，再 `POST /confirm {id, approved: true}` 自动批准 `run_shell`，等效任意命令执行。`/setup`、`/reset` 同样可被跨域盲发。
+- **威胁模型澄清**：智序者是 127.0.0.1 单用户本机工具，唯一真实威胁是"用户浏览器同时开着恶意网页 → CSRF 本机接口"，而非远程黑客或多用户越权。按此模型做最小有效修复，不引入为公网多用户场景设计的机制（PIN 码、HITL 验证码、命令白名单、容器化——这些要么错配，要么破坏"感知宿主机"的核心功能）。
+- **三件套修复**（全部集中在 [web_server.py](engine/web_server.py)）：
+  1. **CORS 收紧**：`_cors()` 从 `Allow-Origin: *` 改为动态回显——仅当请求 `Origin` 属于 `http://127.0.0.1:<port>` / `http://localhost:<port>` 时回显该 Origin，并加 `Vary: Origin` + `Allow-Credentials: true`。恶意网页跨域读不到 SSE 流 → 拿不到 `confirm_id` → 自动批准链断。
+  2. **Origin/Referer 校验**：新增 `_check_origin()`，`do_POST` 与 `do_OPTIONS` 入口强制校验。Origin 优先、退化到 Referer、都没有则拒绝。挡住盲发 POST 和跨域预检。
+  3. **Session 绑定**：`GET /` 首次访问下发 `session=<token>; HttpOnly; SameSite=Strict` cookie；`do_POST` 入口要求所有 POST 带有效 session cookie（挡 curl/脚本）；`/confirm` 校验 `confirm_id` 绑定的 `session_id` 与当前请求 session 一致，防跨会话代答。`_pending_confirms` 结构从 `{event, result}` 扩展为 `{event, result, session_id}`。
+- **连带保护**：`/setup` 和 `/reset` 在 `do_POST` 入口被同一道 Origin + Session 校验覆盖，无需额外 PIN 码即天然安全（跨域 POST 被挡）。`/setup` 覆写 `.env` 的隐私威胁（攻击者把自己的 Key 写入 → 用户后续对话走攻击者 Key → DeepSeek 后台泄露对话内容）同步消除。
+- **明确不做**（附理由，避免后续重复讨论）：
+  - HITL 验证码：本机单用户场景体验灾难，HITL 弹窗的"用户主动点击"已是强意图信号，弹窗不被脚本代答即可。
+  - PIN 码：为 0.0.0.0 多用户设计，127.0.0.1 单用户不需要。
+  - 命令白名单/黑名单：PowerShell 别名繁多（`rm`=`Remove-Item`、`curl`=`Invoke-WebRequest`），黑名单易绕过；白名单破坏通用 shell 功能性。CHANGELOG 已多次标注"有意保留"。
+  - 容器化：与"感知宿主机硬件/GPU"的设计目标根本冲突，容器内看不到宿主机 GPU。
+  - API Key 加密存储：基于机器特征的派生密钥在 run_shell 被 RCE 后无效（攻击者能读到派生原料），属假安全。真正防护是"不让 run_shell 被自动批准"（本三件套已解决）。
+  - 域名白名单 for web_fetch：会废掉 web_search/web_fetch 查任意资料的能力。
+- **验证**：
+  - 集成测试 8/9 通过（GET / 下发 cookie ✓、无 Origin POST 拒绝 ✓、恶意 Origin 拒绝 ✓、无 session POST 拒绝 ✓、合法来源放行 ✓、OPTIONS 预检恶意/本地分流 ✓）；测试 7 的 404 是 confirm_id 不存在分支先返回，非 bug。
+  - 单元测试验证 session 校验逻辑：session-A 的 confirm_id 对 session-B 返回不匹配 → 403。
+  - 原有测试套件 20/20 全绿，无回归。
+- **遗留（P1/P2，远期）**：
+  - SSRF DNS rebinding 加固（pin resolved IP）——CHANGELOG P2-2 已标注，本次未动。
+  - `run_shell` 命令白名单——维持"靠 HITL 兜底"现状，CSRF 链斩断后风险回到"用户自己批准危险命令"的责任边界。
