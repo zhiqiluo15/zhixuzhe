@@ -27,6 +27,7 @@ import secrets
 import sys
 import threading
 import uuid
+import datetime as _dt
 from http.cookies import SimpleCookie
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -301,6 +302,12 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             self._serve_profile_page()
         elif self.path == "/profile/data":
             self._serve_profile_data()
+        elif self.path == "/knowledge":
+            self._serve_knowledge_page()
+        elif self.path == "/knowledge/list":
+            self._serve_knowledge_list()
+        elif self.path.startswith("/knowledge/view"):
+            self._serve_knowledge_view()
         elif self.path == "/taxonomy":
             self._serve_taxonomy()
         elif self.path.startswith("/learn/status"):
@@ -339,6 +346,9 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
         elif self.path == "/learn":
             if self._check_agent():
                 self._handle_learn()
+        elif self.path == "/knowledge/delete":
+            if self._check_agent():
+                self._handle_knowledge_delete()
         else:
             self._error(404, "Not Found")
 
@@ -689,6 +699,163 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
 
         self.wfile.write(json.dumps({"categories": categories}, ensure_ascii=False).encode())
 
+    # ── 知识管理 ──
+
+    def _serve_knowledge_page(self):
+        """提供知识管理页面"""
+        session_id = self._read_session_cookie()
+        self.send_response(200)
+        self._cors()
+        if not session_id:
+            self._set_session_cookie(secrets.token_urlsafe(32))
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        knowledge_path = WEB_DIR / "knowledge.html"
+        if knowledge_path.exists():
+            self.wfile.write(knowledge_path.read_text(encoding="utf-8").encode())
+        else:
+            self.wfile.write("<h1>knowledge.html 未找到</h1>".encode())
+
+    def _serve_knowledge_list(self):
+        """返回知识列表 JSON：按领域分组，含每个知识的元数据"""
+        self._ok()
+        knowledge_dir = ROOT / "memory" / "knowledge" / "languages"
+        domains = []
+        total = 0
+
+        if knowledge_dir.exists():
+            for parent_dir in sorted(knowledge_dir.iterdir()):
+                if not parent_dir.is_dir():
+                    continue
+                items = []
+                for kf in sorted(parent_dir.glob("*.md")):
+                    try:
+                        content = kf.read_text(encoding="utf-8")
+                        # 解析元数据
+                        title = kf.stem
+                        date = ""
+                        mtime = kf.stat().st_mtime
+                        date = _dt.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+
+                        # 从 header 中提取学习时间
+                        for line in content.split("\n")[:10]:
+                            if line.startswith("> 学习时间："):
+                                date = line.split("：", 1)[1].strip().rstrip("  ")
+                                break
+
+                        # 计算字数（粗略）
+                        word_count = len(content)
+
+                        # 提取摘要（第一个 ## 之后的前150字）
+                        summary = ""
+                        body_start = content.find("\n---\n")
+                        if body_start != -1:
+                            body = content[body_start + 5:].strip()
+                            # 去掉第一个 ## 标题行
+                            lines = body.split("\n")
+                            for line in lines:
+                                if line.startswith("## ") or line.startswith("### "):
+                                    continue
+                                if line.strip():
+                                    summary = line.strip()[:150]
+                                    break
+                            if not summary:
+                                summary = body[:150].replace("\n", " ").strip()
+                        else:
+                            summary = content[:150].replace("\n", " ").strip()
+
+                        items.append({
+                            "topic": kf.stem,
+                            "parent": parent_dir.name,
+                            "title": title,
+                            "date": date,
+                            "word_count": word_count,
+                            "summary": summary,
+                        })
+                        total += 1
+                    except Exception:
+                        continue
+                if items:
+                    domains.append({
+                        "name": parent_dir.name,
+                        "count": len(items),
+                        "items": items,
+                    })
+
+        self.wfile.write(json.dumps({
+            "domains": domains,
+            "total": total,
+        }, ensure_ascii=False).encode())
+
+    def _serve_knowledge_view(self):
+        """返回单个知识文件的完整内容"""
+        import urllib.parse
+        qs = urllib.parse.urlparse(self.path).query
+        params = urllib.parse.parse_qs(qs)
+        parent = params.get("parent", [""])[0]
+        topic = params.get("topic", [""])[0]
+
+        if not parent or not topic:
+            self._error(400, "parent 和 topic 参数不能为空")
+            return
+
+        # 路径安全校验：禁止 ../ 穿越
+        if ".." in parent or ".." in topic or "/" in topic or "\\" in topic:
+            self._error(400, "无效的路径参数")
+            return
+
+        knowledge_path = ROOT / "memory" / "knowledge" / "languages" / parent / f"{topic}.md"
+        if not knowledge_path.exists() or not knowledge_path.is_file():
+            self._error(404, "知识文件不存在")
+            return
+
+        try:
+            content = knowledge_path.read_text(encoding="utf-8")
+        except Exception as e:
+            self._error(500, f"读取失败: {e}")
+            return
+
+        self._ok()
+        self.wfile.write(json.dumps({
+            "parent": parent,
+            "topic": topic,
+            "content": content,
+        }, ensure_ascii=False).encode())
+
+    def _handle_knowledge_delete(self):
+        """删除知识文件"""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+            parent = body.get("parent", "").strip()
+            topic = body.get("topic", "").strip()
+        except (ValueError, json.JSONDecodeError):
+            self._error(400, "无效请求体")
+            return
+
+        if not parent or not topic:
+            self._error(400, "parent 和 topic 不能为空")
+            return
+
+        if ".." in parent or ".." in topic or "/" in topic or "\\" in topic:
+            self._error(400, "无效的路径参数")
+            return
+
+        knowledge_path = ROOT / "memory" / "knowledge" / "languages" / parent / f"{topic}.md"
+        if not knowledge_path.exists():
+            self._error(404, "知识文件不存在")
+            return
+
+        try:
+            knowledge_path.unlink()
+        except Exception as e:
+            self._error(500, f"删除失败: {e}")
+            return
+
+        self._ok()
+        self.wfile.write(json.dumps({"status": "ok", "deleted": f"{parent}/{topic}"}, ensure_ascii=False).encode())
+
     # ── 学习任务状态查询 ──
 
     def _serve_learn_status(self):
@@ -773,59 +940,88 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
 def _run_learn_in_background(learn_id: str, agent, node) -> None:
     """后台执行学习任务，更新 _learn_tasks 状态。
 
+    使用 KnowledgeLearningSkill 罐装计划（5步，含重试），而非 LLM 即兴规划。
     关键流程：
-    1. 搜索 → clone → 读源码 → 提炼报告（走 TaskRunner）
-    2. 检测失败（step_results 含"执行失败"或"确认被拒"）→ 不记数不落盘
-    3. 成功则：写知识文件 + 更新能力档案
-    4. 异常兜底：任何异常都不击穿线程，记入 error
+    1. 使用罐装 Skill 计划（搜索→clone→探索→读源码→报告），单步失败重试1次
+    2. clone 失败降级为 web_fetch README
+    3. 关键失败数判断：只有几乎全部步骤失败才放弃
+    4. 成功则：写知识文件（幂等覆盖）+ 更新能力档案（幂等，复习不重复计数）+ 反思经验
+    5. 异常兜底：任何异常都不击穿线程，记入 error
     """
     try:
-        repo_hint_str = f"推荐仓库：{node.repo_hint}" if node.repo_hint else ""
-        goal = (
-            f"学习计算机知识主题：{node.name}（属于{node.parent}领域）。\n"
-            f"搜索提示：{agent.taxonomy.generate_search_query(node.id)}\n"
-            f"{repo_hint_str}\n\n"
-            f"要求：\n"
-            f"1. 用 web_search 在 GitHub 上找到该主题最权威/最活跃的 1 个开源仓库"
-            f"（优先官方仓库或知名社区仓库，要求 README 完整、近 6 个月有 commit）\n"
-            f"2. 用 run_shell 检查 memory/knowledge/repos/ 下是否已有该仓库；"
-            f"已有则跳过 clone，直接用已有代码学习\n"
-            f"3. 若需 clone，检查 repos/ 总大小是否超 200MB（du -sh）；"
-            f"若超限提示需要清理后再学，本次仅基于搜索到的 README/文档学习\n"
-            f"4. 用 run_shell 查看仓库结构，用 read_file 阅读核心源码文件（最多 5 个文件）\n"
-            f"5. 提炼学习成果并输出结构化报告，含核心模式、代码范式（学模式不抄代码）、安全边界、对智序者的启发"
+        from engine.skills.knowledge_learning.skill import KnowledgeLearningSkill
+
+        learn_skill = KnowledgeLearningSkill(
+            topic_name=node.name,
+            search_query=agent.taxonomy.generate_search_query(node.id),
+            repo_hint=node.repo_hint or "",
         )
+        plan = learn_skill.plan(node.name)
+        goal = f"学习计算机知识主题：{node.name}（属于{node.parent}领域）"
+
+        with _learn_lock:
+            task = _learn_tasks.get(learn_id, {})
+            task["total_steps"] = len(plan)
+            task["step"] = 0
+            task["step_text"] = "准备中..."
 
         def progress_callback(msg: str) -> None:
             with _learn_lock:
-                task = _learn_tasks.get(learn_id, {})
-                task["step_text"] = msg[:120]
+                t = _learn_tasks.get(learn_id, {})
+                t["step_text"] = msg[:120]
                 step_match = re.search(r"\[(\d+)/(\d+)\]", msg)
                 if step_match:
-                    task["step"] = int(step_match.group(1))
-                    task["total_steps"] = int(step_match.group(2))
+                    t["step"] = int(step_match.group(1))
+                    t["total_steps"] = int(step_match.group(2))
 
-        response = agent.task_runner.run(
-            goal, verbose=True,
-            verbose_callback=progress_callback,
+        # 注入记忆上下文
+        memory_context = ""
+        if agent.memory_manager:
+            memory_context = agent.memory_manager.build_context(goal)
+
+        # 执行计划（单步重试1次）
+        step_results = []
+        for i, step in enumerate(plan):
+            step_ok = False
+            for attempt in range(2):
+                try:
+                    progress_callback(f"⏳ [{i + 1}/{len(plan)}] {step[:50]}...")
+                    result = agent.task_runner._execute_step(
+                        goal, step, i, plan, step_results[:i],
+                        None,  # Web 端学习暂不经过 HITL 确认（clone/read 不需要审批）
+                        memory_context if i == 0 else "",
+                    )
+                    step_results.append(result)
+                    progress_callback(f"✅ [{i + 1}/{len(plan)}] 步骤完成")
+                    step_ok = True
+                    break
+                except Exception as e:
+                    logger.warning(f"学习步骤 {i+1} 第{attempt+1}次尝试失败: {e}")
+                    if attempt == 0:
+                        progress_callback(f"⚠️ 步骤 {i+1} 失败，重试...")
+                    else:
+                        step_results.append(f"执行失败（重试后仍失败）: {e}")
+                        progress_callback(f"❌ 步骤 {i+1} 失败，跳过")
+
+        # 综合结论
+        try:
+            response = agent.task_runner._synthesize(goal, plan, step_results)
+        except Exception as e:
+            response = "学习过程部分失败，但已获取以下信息：\n\n" + "\n\n".join(
+                sr for sr in step_results if sr and not sr.startswith("执行失败")
+            )
+
+        # 判断关键失败
+        critical_failures = sum(
+            1 for s in step_results if s and s.startswith("执行失败")
         )
-
-        step_results = agent.task_runner.last_step_results
-
-        failed = any(
-            "执行失败" in (s or "") or "确认被拒" in (s or "")
-            for s in step_results
-        )
-
-        if failed:
+        if critical_failures >= len(plan) - 1:
             with _learn_lock:
                 _learn_tasks[learn_id]["status"] = "failed"
-                _learn_tasks[learn_id]["error"] = (
-                    "学习未完成：部分步骤执行失败或 HITL 确认被拒。"
-                    "知识库和档案均未更新，可稍后重试。"
-                )
+                _learn_tasks[learn_id]["error"] = "学习失败：关键步骤均执行失败，知识库和档案均未更新。"
             return
 
+        # 写知识文件（幂等覆盖）
         try:
             agent.recorder.record_knowledge(
                 parent=node.parent,
@@ -835,18 +1031,22 @@ def _run_learn_in_background(learn_id: str, agent, node) -> None:
         except Exception as e:
             logger.warning(f"知识写入失败（不阻断流程）: {e}")
 
+        # 更新能力档案（幂等：新学+1，复习不计数）
         try:
             if agent.profile_manager:
-                stats = agent.profile_manager.get_language_stats(node.parent)
-                new_count = stats.get("count", 0) + 1
                 agent.profile_manager.record_learning(
                     parent=node.parent,
                     topic=node.name,
-                    total_count=new_count,
                     summary=response[:200],
                 )
         except Exception as e:
             logger.warning(f"档案更新失败（不阻断流程）: {e}")
+
+        # 反思经验
+        try:
+            agent.task_runner.reflect_experience(goal, response)
+        except Exception:
+            pass
 
         with _learn_lock:
             _learn_tasks[learn_id]["status"] = "done"

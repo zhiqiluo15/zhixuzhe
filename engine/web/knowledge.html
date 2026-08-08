@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智序者 - 知识库管理</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #03030d;
+  color: #d0d0d0;
+  min-height: 100vh;
+  padding: 0 20px 40px;
+}
+
+.topbar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 18px 0; border-bottom: 1px solid rgba(167,139,250,0.08);
+  margin-bottom: 24px; flex-wrap: wrap;
+}
+.topbar a {
+  color: #a78bfa; text-decoration: none; font-size: 13px;
+  padding: 6px 14px; border-radius: 7px;
+  border: 1px solid rgba(167,139,250,0.15);
+  transition: all 0.2s;
+}
+.topbar a:hover { background: rgba(167,139,250,0.12); }
+.topbar h1 {
+  font-size: 20px; font-weight: 600;
+  background: linear-gradient(135deg, #a78bfa, #60a5fa);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.topbar .badge {
+  font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  background: rgba(167,139,250,0.12); color: #8b83ba;
+}
+.topbar .count-info {
+  margin-left: auto; font-size: 12px; color: #666;
+}
+
+/* ── 搜索栏 ── */
+.search-bar {
+  margin-bottom: 24px;
+}
+.search-bar input {
+  width: 100%; max-width: 400px;
+  padding: 10px 16px; border-radius: 10px;
+  background: rgba(16,16,32,0.8); border: 1px solid rgba(167,139,250,0.12);
+  color: #d0d0d0; font-size: 13px; outline: none;
+  transition: border-color 0.2s;
+}
+.search-bar input:focus { border-color: rgba(167,139,250,0.3); }
+.search-bar input::placeholder { color: #555; }
+
+/* ── 知识分组 ── */
+.domains { display: flex; flex-direction: column; gap: 16px; }
+
+.domain-card {
+  background: rgba(16,16,32,0.6); border: 1px solid rgba(167,139,250,0.08);
+  border-radius: 14px; overflow: hidden;
+}
+.domain-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 20px; cursor: pointer;
+  transition: background 0.2s;
+}
+.domain-header:hover { background: rgba(167,139,250,0.04); }
+.domain-header .domain-icon { font-size: 18px; }
+.domain-header h3 { font-size: 14px; color: #c4b5fd; font-weight: 600; }
+.domain-header .domain-count { font-size: 11px; color: #666; margin-left: auto; }
+
+.domain-body { padding: 0 20px 14px; }
+
+/* ── 知识条目 ── */
+.knowledge-item {
+  background: rgba(22,22,38,0.8); border: 1px solid rgba(167,139,250,0.06);
+  border-radius: 10px; padding: 12px 16px; margin-bottom: 8px;
+  display: flex; align-items: flex-start; gap: 12px;
+  transition: all 0.2s; cursor: pointer;
+}
+.knowledge-item:hover { border-color: rgba(167,139,250,0.2); background: rgba(26,26,44,0.9); }
+.knowledge-item .k-info { flex: 1; min-width: 0; }
+.knowledge-item .k-title {
+  font-size: 13px; font-weight: 600; color: #ddd; margin-bottom: 4px;
+}
+.knowledge-item .k-summary {
+  font-size: 12px; color: #777; line-height: 1.5;
+  overflow: hidden; text-overflow: ellipsis;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.knowledge-item .k-meta {
+  font-size: 10px; color: #555; margin-top: 5px;
+  display: flex; gap: 12px;
+}
+.knowledge-item .k-actions {
+  flex-shrink: 0; display: flex; gap: 6px; align-items: center;
+}
+.knowledge-item .k-btn {
+  font-size: 11px; padding: 4px 10px; border-radius: 6px;
+  border: 1px solid rgba(167,139,250,0.12); background: transparent;
+  color: #8b83ba; cursor: pointer; transition: all 0.2s;
+}
+.knowledge-item .k-btn:hover { background: rgba(167,139,250,0.12); }
+.knowledge-item .k-btn.danger {
+  border-color: rgba(239,68,68,0.15); color: #f87171;
+}
+.knowledge-item .k-btn.danger:hover { background: rgba(239,68,68,0.1); }
+
+/* ── 空状态 ── */
+.empty-state {
+  text-align: center; padding: 60px 20px; color: #555; font-size: 13px;
+}
+.empty-state a { color: #a78bfa; }
+
+/* ── 知识详情弹窗 ── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.7); z-index: 100;
+  justify-content: center; align-items: flex-start;
+  padding: 40px 20px; overflow-y: auto;
+}
+.modal-overlay.active { display: flex; }
+.modal {
+  background: #0d0d1a; border: 1px solid rgba(167,139,250,0.12);
+  border-radius: 14px; width: 100%; max-width: 780px;
+  max-height: 85vh; display: flex; flex-direction: column;
+}
+.modal-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 18px 24px; border-bottom: 1px solid rgba(167,139,250,0.08);
+  flex-shrink: 0;
+}
+.modal-header h2 {
+  font-size: 16px; font-weight: 600; color: #c4b5fd; flex: 1;
+}
+.modal-close {
+  background: none; border: none; color: #666; font-size: 20px;
+  cursor: pointer; padding: 4px 8px; border-radius: 6px;
+  transition: all 0.2s; line-height: 1;
+}
+.modal-close:hover { background: rgba(255,255,255,0.06); color: #aaa; }
+.modal-body {
+  padding: 20px 24px; overflow-y: auto; flex: 1;
+  font-size: 13px; line-height: 1.75; color: #bbb;
+}
+.modal-body h1 { font-size: 18px; color: #d0d0d0; margin-bottom: 12px; }
+.modal-body h2 { font-size: 16px; color: #c4b5fd; margin: 20px 0 10px; }
+.modal-body h3 { font-size: 14px; color: #a78bfa; margin: 16px 0 8px; }
+.modal-body p { margin-bottom: 10px; }
+.modal-body ul, .modal-body ol { margin: 8px 0 12px 20px; }
+.modal-body li { margin-bottom: 4px; }
+.modal-body code {
+  background: rgba(167,139,250,0.08); padding: 1px 6px; border-radius: 4px;
+  font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-size: 12px; color: #a78bfa;
+}
+.modal-body pre {
+  background: rgba(0,0,0,0.3); border: 1px solid rgba(167,139,250,0.06);
+  border-radius: 8px; padding: 12px 16px; overflow-x: auto; margin: 10px 0;
+}
+.modal-body pre code { background: none; padding: 0; color: #9ca3af; }
+.modal-body blockquote {
+  border-left: 3px solid rgba(167,139,250,0.3);
+  padding-left: 12px; margin: 10px 0; color: #888;
+}
+.modal-body table {
+  width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12px;
+}
+.modal-body th, .modal-body td {
+  border: 1px solid rgba(167,139,250,0.1);
+  padding: 6px 10px; text-align: left;
+}
+.modal-body th { background: rgba(167,139,250,0.06); color: #c4b5fd; }
+.modal-body strong { color: #d0d0d0; }
+.modal-body hr { border: none; border-top: 1px solid rgba(167,139,250,0.08); margin: 16px 0; }
+.modal-body a { color: #60a5fa; }
+.modal-meta {
+  font-size: 11px; color: #555; padding: 10px 24px;
+  border-top: 1px solid rgba(167,139,250,0.06); flex-shrink: 0;
+}
+
+/* ── 删除确认弹窗 ── */
+.confirm-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.7); z-index: 200;
+  justify-content: center; align-items: center;
+}
+.confirm-overlay.active { display: flex; }
+.confirm-box {
+  background: #0d0d1a; border: 1px solid rgba(239,68,68,0.15);
+  border-radius: 14px; padding: 24px 28px; max-width: 380px; width: 90%;
+}
+.confirm-box h3 { font-size: 15px; color: #f87171; margin-bottom: 10px; }
+.confirm-box p { font-size: 13px; color: #999; margin-bottom: 18px; line-height: 1.5; }
+.confirm-box .confirm-btns { display: flex; gap: 10px; justify-content: flex-end; }
+.confirm-box .btn-cancel, .confirm-box .btn-ok {
+  padding: 7px 18px; border-radius: 8px; font-size: 12px; cursor: pointer;
+  border: 1px solid transparent; transition: all 0.2s;
+}
+.confirm-box .btn-cancel {
+  background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1);
+  color: #999;
+}
+.confirm-box .btn-cancel:hover { background: rgba(255,255,255,0.08); }
+.confirm-box .btn-ok {
+  background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3);
+  color: #f87171;
+}
+.confirm-box .btn-ok:hover { background: rgba(239,68,68,0.25); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>智序者 zhixuzhe</h1>
+  <span class="badge">知识库</span>
+  <a href="/">← 返回对话</a>
+  <a href="/profile">学习面板</a>
+  <span class="count-info" id="count-info"></span>
+</div>
+
+<div class="search-bar">
+  <input type="text" id="search-input" placeholder="搜索知识..." oninput="filterKnowledge()">
+</div>
+
+<div class="domains" id="domains">
+  <div class="empty-state">加载中...</div>
+</div>
+
+<!-- 知识详情弹窗 -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h2 id="modal-title"></h2>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-meta" id="modal-meta"></div>
+  </div>
+</div>
+
+<!-- 删除确认弹窗 -->
+<div class="confirm-overlay" id="confirm-overlay">
+  <div class="confirm-box">
+    <h3>确认删除</h3>
+    <p id="confirm-text">确定要删除这条知识吗？删除后无法恢复。</p>
+    <div class="confirm-btns">
+      <button class="btn-cancel" onclick="closeConfirm()">取消</button>
+      <button class="btn-ok" id="confirm-btn-delete" onclick="doDelete()">删除</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════
+//  数据
+// ════════════════════════════════════
+
+let knowledgeData = { domains: [], total: 0 };
+let pendingDelete = null; // {parent, topic}
+
+const DOMAIN_ICONS = {
+  'Python': '🐍', 'Rust': '🦀', 'JavaScript': '🟨', 'TypeScript': '🔷',
+  'Go': '🐹', 'C++': '⚡', 'Java': '☕', '架构': '🏗️', '系统': '⚙️',
+};
+
+async function loadKnowledge() {
+  try {
+    const resp = await fetch('/knowledge/list');
+    knowledgeData = await resp.json();
+    renderKnowledge(knowledgeData);
+    document.getElementById('count-info').textContent =
+      '共 ' + knowledgeData.total + ' 条知识';
+  } catch(e) {
+    document.getElementById('domains').innerHTML =
+      '<div class="empty-state" style="color:#f87171">加载失败: ' + esc(String(e)) + '</div>';
+  }
+}
+
+function renderKnowledge(data) {
+  const container = document.getElementById('domains');
+  const searchTerm = (document.getElementById('search-input').value || '').toLowerCase().trim();
+
+  if (!data.domains || data.domains.length === 0) {
+    container.innerHTML = '<div class="empty-state">暂无已学知识 — <a href="/profile">去学习面板开始学习</a></div>';
+    return;
+  }
+
+  let html = '';
+  let visibleCount = 0;
+
+  for (const domain of data.domains) {
+    // 过滤知识条目
+    const filteredItems = domain.items.filter(item => {
+      if (!searchTerm) return true;
+      return (item.topic + ' ' + item.summary + ' ' + item.parent).toLowerCase().includes(searchTerm);
+    });
+    if (filteredItems.length === 0) continue;
+    visibleCount += filteredItems.length;
+
+    const icon = DOMAIN_ICONS[domain.name] || '📁';
+    html += `
+      <div class="domain-card">
+        <div class="domain-header" onclick="toggleDomain(this)">
+          <span class="domain-icon">${icon}</span>
+          <h3>${esc(domain.name)}</h3>
+          <span class="domain-count">${filteredItems.length} 条</span>
+        </div>
+        <div class="domain-body">
+          ${filteredItems.map(item => renderItem(item)).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  if (visibleCount === 0) {
+    container.innerHTML = '<div class="empty-state">未找到匹配的知识</div>';
+  } else {
+    container.innerHTML = html;
+  }
+}
+
+function renderItem(item) {
+  return `
+    <div class="knowledge-item" onclick="viewKnowledge('${escAttr(item.parent)}','${escAttr(item.topic)}')">
+      <div class="k-info">
+        <div class="k-title">${esc(item.topic)}</div>
+        <div class="k-summary">${esc(item.summary)}</div>
+        <div class="k-meta">
+          <span>📅 ${esc(item.date)}</span>
+          <span>📝 ${item.word_count} 字</span>
+        </div>
+      </div>
+      <div class="k-actions" onclick="event.stopPropagation()">
+        <button class="k-btn" onclick="viewKnowledge('${escAttr(item.parent)}','${escAttr(item.topic)}')">查看</button>
+        <button class="k-btn danger" onclick="confirmDelete('${escAttr(item.parent)}','${escAttr(item.topic)}','${escAttr(item.topic)}')">删除</button>
+      </div>
+    </div>
+  `;
+}
+
+function toggleDomain(header) {
+  const body = header.nextElementSibling;
+  if (body) body.style.display = body.style.display === 'none' ? '' : 'none';
+}
+
+function filterKnowledge() {
+  renderKnowledge(knowledgeData);
+}
+
+// ════════════════════════════════════
+//  查看知识详情
+// ════════════════════════════════════
+
+async function viewKnowledge(parent, topic) {
+  const modal = document.getElementById('modal-overlay');
+  const titleEl = document.getElementById('modal-title');
+  const bodyEl = document.getElementById('modal-body');
+  const metaEl = document.getElementById('modal-meta');
+
+  titleEl.textContent = topic;
+  bodyEl.innerHTML = '<div style="color:#555;text-align:center;padding:20px">加载中...</div>';
+  metaEl.textContent = '';
+  modal.classList.add('active');
+
+  try {
+    const resp = await fetch('/knowledge/view?parent=' + encodeURIComponent(parent) + '&topic=' + encodeURIComponent(topic));
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    bodyEl.innerHTML = renderMarkdown(data.content);
+    metaEl.textContent = parent + ' / ' + topic;
+  } catch(e) {
+    bodyEl.innerHTML = '<div style="color:#f87171">加载失败: ' + esc(String(e)) + '</div>';
+  }
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('modal-overlay')) return;
+  document.getElementById('modal-overlay').classList.remove('active');
+}
+
+// ════════════════════════════════════
+//  删除
+// ════════════════════════════════════
+
+function confirmDelete(parent, topic, name) {
+  pendingDelete = { parent, topic };
+  document.getElementById('confirm-text').textContent =
+    '确定要删除「' + name + '」吗？删除后无法恢复，且会影响能力档案中的知识计数。';
+  document.getElementById('confirm-overlay').classList.add('active');
+}
+
+function closeConfirm() {
+  pendingDelete = null;
+  document.getElementById('confirm-overlay').classList.remove('active');
+}
+
+async function doDelete() {
+  if (!pendingDelete) return;
+  const { parent, topic } = pendingDelete;
+  const btn = document.getElementById('confirm-btn-delete');
+  btn.textContent = '删除中...';
+  btn.disabled = true;
+
+  try {
+    const resp = await fetch('/knowledge/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parent, topic }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.error || '删除失败');
+    }
+    closeConfirm();
+    btn.textContent = '删除';
+    btn.disabled = false;
+    closeModal();
+    await loadKnowledge(); // 刷新列表
+  } catch(e) {
+    btn.textContent = '删除';
+    btn.disabled = false;
+    alert('删除失败: ' + e.message);
+  }
+}
+
+// ════════════════════════════════════
+//  简易 Markdown 渲染
+// ════════════════════════════════════
+
+function renderMarkdown(md) {
+  // 先提取 > 元数据头（> 领域：、> 学习时间：等），单独处理
+  let lines = md.split('\n');
+  let html = '';
+  let inCode = false;
+  let codeLang = '';
+  let codeLines = [];
+  let inList = false;
+  let listType = '';
+  let inTable = false;
+  let tableRows = [];
+
+  function closeList() {
+    if (inList) {
+      html += '</' + listType + '>';
+      inList = false;
+    }
+  }
+
+  function closeTable() {
+    if (inTable && tableRows.length > 0) {
+      html += '<table>';
+      tableRows.forEach((row, idx) => {
+        const tag = idx === 0 ? 'th' : 'td';
+        const cells = row.split('|').map(c => c.trim()).filter(c => c !== '');
+        if (idx === 1 && cells.every(c => /^[-:]+$/.test(c.replace(/\s/g,'')))) return; // 分隔行
+        html += '<tr>';
+        cells.forEach(c => { html += '<' + tag + '>' + inlineMd(c) + '</' + tag + '>'; });
+        html += '</tr>';
+      });
+      html += '</table>';
+      inTable = false;
+      tableRows = [];
+    }
+  }
+
+  for (let line of lines) {
+    // 代码块
+    if (line.startsWith('```')) {
+      if (inCode) {
+        html += '<pre><code>' + esc(codeLines.join('\n')) + '</code></pre>';
+        codeLines = [];
+        inCode = false;
+      } else {
+        closeList(); closeTable();
+        inCode = true;
+        codeLang = line.slice(3).trim();
+      }
+      continue;
+    }
+    if (inCode) { codeLines.push(line); continue; }
+
+    // 空行
+    if (!line.trim()) { closeList(); closeTable(); html += '\n'; continue; }
+
+    // 水平线
+    if (/^---+$/.test(line.trim())) { closeList(); closeTable(); html += '<hr>'; continue; }
+
+    // 标题
+    if (line.startsWith('# ')) { closeList(); closeTable(); html += '<h1>' + inlineMd(line.slice(2)) + '</h1>'; continue; }
+    if (line.startsWith('## ')) { closeList(); closeTable(); html += '<h2>' + inlineMd(line.slice(3)) + '</h2>'; continue; }
+    if (line.startsWith('### ')) { closeList(); closeTable(); html += '<h3>' + inlineMd(line.slice(4)) + '</h3>'; continue; }
+    if (line.startsWith('#### ')) { closeList(); closeTable(); html += '<h3 style="font-size:13px;color:#9ca3af">' + inlineMd(line.slice(5)) + '</h3>'; continue; }
+
+    // 引用
+    if (line.startsWith('> ')) {
+      closeList(); closeTable();
+      html += '<blockquote>' + inlineMd(line.slice(2)) + '</blockquote>';
+      continue;
+    }
+
+    // 表格行
+    if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+      closeList();
+      inTable = true;
+      tableRows.push(line.trim());
+      continue;
+    } else if (inTable) {
+      closeTable();
+    }
+
+    // 无序列表
+    if (/^[-*] /.test(line.trim())) {
+      if (!inList || listType !== 'ul') { closeList(); html += '<ul>'; inList = true; listType = 'ul'; }
+      html += '<li>' + inlineMd(line.trim().replace(/^[-*] /, '')) + '</li>';
+      continue;
+    }
+
+    // 有序列表
+    if (/^\d+\.\s/.test(line.trim())) {
+      if (!inList || listType !== 'ol') { closeList(); html += '<ol>'; inList = true; listType = 'ol'; }
+      html += '<li>' + inlineMd(line.trim().replace(/^\d+\.\s/, '')) + '</li>';
+      continue;
+    }
+
+    closeList();
+    html += '<p>' + inlineMd(line) + '</p>';
+  }
+
+  closeList(); closeTable();
+  if (inCode) { html += '<pre><code>' + esc(codeLines.join('\n')) + '</code></pre>'; }
+
+  return html;
+}
+
+function inlineMd(text) {
+  // 转义
+  let s = esc(text);
+  // **bold**
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // `code`
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // [text](url)
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // 自动链接
+  s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  return s;
+}
+
+// ════════════════════════════════════
+//  工具函数
+// ════════════════════════════════════
+
+function esc(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+function escAttr(s) {
+  return esc(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+}
+
+// ESC 关闭弹窗
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (document.getElementById('confirm-overlay').classList.contains('active')) {
+      closeConfirm();
+    } else {
+      closeModal();
+    }
+  }
+});
+
+// 初始化
+loadKnowledge();
+</script>
+</body>
+</html>

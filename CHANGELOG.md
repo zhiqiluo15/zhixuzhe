@@ -54,6 +54,41 @@
 - 82 个现有单元测试全部通过（无回归）。
 - record_knowledge() 天然幂等（os.replace 覆盖写入），复习时知识文件自动更新为最新报告。
 
+## [2026-08-08] v1.2.4 知识库 Web 管理面板 + Web端学习管线修复
+
+### 功能：Web 知识库管理
+
+新增浏览器端知识浏览、查看、删除功能。
+
+**后端 API**（[web_server.py#L701-L857](file:///t:/zhixuzhe/engine/web_server.py#L701-L857)）：
+- `GET /knowledge` → 知识库管理页面
+- `GET /knowledge/list` → 知识列表 JSON（按领域分组，含 title/date/word_count/summary）
+- `GET /knowledge/view?parent=X&topic=Y` → 单条知识完整内容
+- `POST /knowledge/delete` → 删除知识（session校验 + 路径穿越防护）
+
+**前端页面**（[knowledge.html](file:///t:/zhixuzhe/engine/web/knowledge.html)）：
+- 深色主题，复用 profile.html 紫色系设计语言
+- 按领域分组折叠浏览（Python🐍/Rust🦀等图标）
+- 实时搜索过滤
+- 点击查看完整内容，内嵌 Markdown 渲染（标题/加粗/代码块/列表/表格/引用/链接）
+- 删除带二次确认弹窗，ESC 关闭
+- 路径安全：禁止 `..`/`/`/`\` 穿越
+
+**导航**：profile.html 顶部栏新增「📚 知识库」入口。
+
+### 修复：Web 后台学习函数同步更新
+
+[web_server.py#L940-L1059](file:///t:/zhixuzhe/engine/web_server.py#L940-L1059) 重写 `_run_learn_in_background()`：
+- 改用 `KnowledgeLearningSkill` 罐装5步计划（与 CLI learn 一致）
+- 每步失败重试1次，失败跳过继续
+- clone 失败降级为 web_fetch
+- 幂等 `record_learning()`（复习不重复计数）
+- 学习结束自动触发经验反思
+
+### 验证
+- 82/82 单元测试全绿
+- 浏览器实测：列表/查看/Markdown渲染/搜索/弹窗均正常
+
 ## 2026-08-05（项目启动）
 
 ### 愿景确立
