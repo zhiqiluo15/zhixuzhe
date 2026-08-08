@@ -67,24 +67,47 @@ class ProfileManager:
         self,
         parent: str,
         topic: str,
-        total_count: int,
         summary: str = "",
         source_repo: str = "",
-    ) -> None:
-        """记录一次学习任务完成后的档案更新。
+    ) -> dict:
+        """记录一次学习任务完成后的档案更新（幂等：重复学习同一主题不重复计数）。
+
+        自动检测该 parent 下已学主题集合，若 topic 已存在则更新（刷新日期和摘要），
+        若不存在则计数 +1 并追加新条目。
 
         Args:
             parent: 所属语言/领域（对应 taxonomy 节点的 parent 字段）
             topic: 学到的主题名
-            total_count: 该 parent 下当前总知识条数
             summary: 学习要点摘要（写入学习历史）
             source_repo: 来源仓库 URL
+
+        Returns:
+            dict: {"is_new": bool, "count": int, "level": str}
+                is_new=True 表示首次学习该主题（count+1），False 表示复习更新
         """
-        # 更新 parent 在表格中的行
         content = self.profile_path.read_text(encoding="utf-8")
         today = date.today().isoformat()
 
-        # 找到表格中的目标行或新增
+        # 检测该主题是否已学过（在学习历史中查找）
+        history_header = "## 学习历史\n"
+        is_new_topic = True
+        if history_header in content:
+            history_section = content[content.index(history_header) + len(history_header):]
+            # 简单检测：学习历史条目中是否包含该 topic 名
+            # 条目格式：- **日期** | topic名
+            topic_marker = f"| {topic}"
+            if topic_marker in history_section:
+                is_new_topic = False
+
+        # 计算当前 count
+        data = self.load()
+        current_count = data["languages"].get(parent, {}).get("count", 0)
+        if is_new_topic:
+            total_count = current_count + 1
+        else:
+            total_count = current_count  # 复习不增加计数
+
+        # 更新 parent 在表格中的行
         parent_escaped = parent.replace("|", "\\|")
         target_line = f"| {parent} |"
         new_row = f"| {parent} | {self.level(total_count)} | {total_count} | {today} |"
@@ -92,7 +115,6 @@ class ProfileManager:
         if target_line in content:
             content = content.replace(target_line, new_row, 1)
         else:
-            # 在该表的最后一个数据行后插入
             table_end = content.find("\n\n", content.find("|-----------|"))
             if table_end == -1:
                 table_end = content.find("## 技能清单")
@@ -100,28 +122,33 @@ class ProfileManager:
                 table_end = len(content)
             content = content[:table_end] + f"\n{new_row}" + content[table_end:]
 
-        # 追加学习历史
-        history_header = "## 学习历史\n"
+        # 追加/更新学习历史
         if history_header in content:
             entry_lines = [f"- **{today}** | {topic}"]
             if summary:
                 entry_lines.append(f"  - {summary[:200]}")
             if source_repo:
                 entry_lines.append(f"  - 📦 来源：{source_repo}")
-            # 插入到学习历史节的开头
-            insert_pos = content.index(history_header) + len(history_header)
-            # 按日期分组：找到第一个 m-d 的行，如果不是今天就在前面插入
-            today_prefix = f"- **{today}**"
-            if today_prefix in content[insert_pos:]:
-                # 今天已有记录，追加到今天的条目下
-                pass  # 简化处理：直接在历史节末尾追加
-            content = content[:insert_pos] + "\n".join(entry_lines) + "\n" + content[insert_pos:]
+            if is_new_topic:
+                insert_pos = content.index(history_header) + len(history_header)
+                content = content[:insert_pos] + "\n".join(entry_lines) + "\n" + content[insert_pos:]
+            # 复习场景：不重复追加历史，只更新日期（表格行已更新 last_study 日期）
 
         # 原子写入
         tmp = self.profile_path.with_suffix(".md.tmp")
         tmp.write_text(content, encoding="utf-8")
         tmp.replace(self.profile_path)
-        logger.info(f"能力档案已更新: {parent} ({topic}) → {self.level(total_count)}")
+        action = "新学" if is_new_topic else "复习"
+        logger.info(f"能力档案已更新({action}): {parent} ({topic}) → {self.level(total_count)}({total_count}条)")
+
+        return {"is_new": is_new_topic, "count": total_count, "level": self.level(total_count)}
+
+    def has_topic(self, parent: str, topic: str) -> bool:
+        """检查某个主题是否已学习过"""
+        data = self.load()
+        history = data.get("history", [])
+        topic_marker = f"| {topic}"
+        return any(topic_marker in h for h in history)
 
     def load(self) -> dict:
         """读取当前能力档案数据（供 API 返回 JSON）"""

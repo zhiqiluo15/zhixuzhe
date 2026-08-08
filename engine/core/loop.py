@@ -376,42 +376,91 @@ class Agent:
                     print("错误: 能力档案未初始化")
                     continue
 
+                # 检查是否已学过（复习模式）
+                already_learned = self.profile_manager.has_topic(node.parent, node.name)
+                mode_label = "复习" if already_learned else "新学"
+
                 print("\n" + "═" * 44)
-                print("  🎓 知识学习模式已启动")
+                print(f"  🎓 知识学习模式已启动（{mode_label}）")
                 print(f"  📖 主题: {node.name}（{node.parent}，{node.difficulty}）")
                 print("  🔍 智序者将搜索 GitHub、clone 仓库、阅读源码并沉淀知识")
                 print("═" * 44 + "\n")
 
-                goal = (
-                    f"学习计算机知识主题：{node.name}（属于{node.parent}领域）。\n"
-                    f"搜索提示：{self.taxonomy.generate_search_query(node_id)}\n"
-                    f"{'推荐仓库：' + node.repo_hint if node.repo_hint else ''}\n\n"
-                    f"要求：\n"
-                    f"1. 用 web_search 在 GitHub 上找到该主题最权威/最活跃的 1 个开源仓库（优先官方仓库或知名社区仓库，要求 README 完整、最近 6 个月有 commit）\n"
-                    f"2. 用 run_shell 将仓库 git clone --depth 1 到 memory/knowledge/repos/ 目录\n"
-                    f"3. 用 run_shell 查看仓库结构，用 read_file 阅读核心源码文件（入口、核心模块，最多 5 个文件）\n"
-                    f"4. 提炼学习成果并输出结构化报告，包含：核心概念与设计模式、值得借鉴的代码范式（学模式不抄代码）、安全边界与常见踩坑点、对智序者的启发"
+                # 使用罐装技能计划（而非LLM即兴规划），每步有明确成功条件
+                from engine.skills.knowledge_learning.skill import KnowledgeLearningSkill
+                learn_skill = KnowledgeLearningSkill(
+                    topic_name=node.name,
+                    search_query=self.taxonomy.generate_search_query(node_id),
+                    repo_hint=node.repo_hint or "",
                 )
+                plan = learn_skill.plan(node.name)
+                goal = f"学习计算机知识主题：{node.name}（属于{node.parent}领域）"
 
-                logger.info(f"开始学习: {node_id} ({node.name})")
-                response = self.task_runner.run(
-                    goal,
-                    confirm_callback=self._hitl_confirm,
+                print(f"📋 罐装计划（{len(plan)}步，每步有明确成功标准）:")
+                for i, s in enumerate(plan):
+                    print(f"  [{i + 1}] {s[:70]}...")
+                print()
+
+                logger.info(f"开始学习({mode_label}): {node_id} ({node.name})")
+
+                # 注入记忆上下文
+                memory_context = ""
+                if self.memory_manager:
+                    memory_context = self.memory_manager.build_context(goal)
+
+                # 执行计划（单步失败重试一次）
+                step_results: list[str] = []
+                response = ""
+                for i, step in enumerate(plan):
+                    step_ok = False
+                    for attempt in range(2):  # 每步最多重试1次
+                        try:
+                            print(f"⏳ [{i + 1}/{len(plan)}] {step[:60]}...")
+                            result = self.task_runner._execute_step(
+                                goal, step, i, plan, step_results[:i],
+                                self._hitl_confirm,
+                                memory_context if i == 0 else "",
+                            )
+                            step_results.append(result)
+                            print("✅")
+                            step_ok = True
+                            break
+                        except Exception as e:
+                            logger.warning(f"步骤 {i+1} 第{attempt+1}次尝试失败: {e}")
+                            if attempt == 0:
+                                print(f"⚠️  步骤 {i+1} 失败，重试一次...")
+                            else:
+                                step_results.append(f"执行失败（重试后仍失败）: {e}")
+                                print(f"❌ 步骤 {i+1} 重试后仍失败，跳过继续")
+
+                # 综合结论
+                try:
+                    response = self.task_runner._synthesize(goal, plan, step_results)
+                except Exception as e:
+                    response = f"学习过程部分失败，但已获取以下信息：\n\n" + "\n\n".join(
+                        sr for sr in step_results if sr and not sr.startswith("执行失败")
+                    )
+
+                # 记录任务（无论成功失败都记录，便于复盘）
+                try:
+                    self.recorder.record_task(
+                        goal, plan, step_results, response,
+                        plan_source=f"skill:{learn_skill.name}",
+                    )
+                except Exception:
+                    pass
+
+                # 判断关键步骤是否成功（至少完成了搜索+报告）
+                critical_failures = sum(
+                    1 for s in step_results if s and s.startswith("执行失败")
                 )
-
-                step_results = self.task_runner.last_step_results
-                failed = any(
-                    "执行失败" in (s or "") or "确认被拒" in (s or "")
-                    for s in step_results
-                )
-
-                if failed:
-                    print(f"\n学习未完成：部分步骤执行失败或 HITL 确认被拒。知识库和档案均未更新。\n")
+                if critical_failures >= len(plan) - 1:
+                    print(f"\n学习失败：所有关键步骤均执行失败，知识库和档案均未更新。\n")
                     continue
 
                 print(f"\n═══ 学习成果 ═══\n\n{response}\n")
 
-                # 写知识文件
+                # 写知识文件（幂等：覆盖已有知识文件）
                 try:
                     self.recorder.record_knowledge(
                         parent=node.parent,
@@ -421,19 +470,23 @@ class Agent:
                 except Exception as e:
                     logger.debug(f"知识写入失败（不阻断流程）: {e}")
 
-                # 更新能力档案
+                # 更新能力档案（幂等：重复学习不重复计数）
                 try:
-                    stats = self.profile_manager.get_language_stats(node.parent)
-                    new_count = stats.get("count", 0) + 1
-                    self.profile_manager.record_learning(
+                    result = self.profile_manager.record_learning(
                         parent=node.parent,
                         topic=node.name,
-                        total_count=new_count,
                         summary=response[:200],
                     )
-                    print(f"[档案已更新] {node.parent} {node.name} → {ProfileManager.level(new_count)}（{new_count} 条）\n")
+                    action = "新学" if result["is_new"] else "复习"
+                    print(f"[档案已更新] {action} {node.parent} {node.name} → {result['level']}（{result['count']} 条）\n")
                 except Exception as e:
                     logger.debug(f"档案更新失败（不阻断流程）: {e}")
+
+                # 反思经验
+                try:
+                    self.task_runner.reflect_experience(goal, response)
+                except Exception:
+                    pass
 
                 continue
 

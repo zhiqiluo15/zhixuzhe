@@ -7,6 +7,53 @@
 
 ---
 
+## [2026-08-08] v1.2.3 P1 修复：学习管线健壮性 + Profile 幂等更新
+
+### 问题诊断
+
+1. **P1 学习管线脆弱**：原 `learn <topic>` 命令构建一个超长自由文本 goal 扔给 TaskRunner，由 Brain 即兴规划步骤。问题：
+   - 步骤不可预测（Brain 可能分3步也可能分6步）
+   - 每步没有明确成功条件（是否clone成功？是否读到源码？无法自动判断）
+   - 单步失败直接中断整个学习任务，无法重试
+   - 上次学习 uv 时即因轮次耗尽，clone后未能读源码，知识文件自己也记录了这一失败
+
+2. **P1 Profile 重复计数**：原 `record_learning(parent, topic, total_count, ...)` 要求调用方传入 `total_count`，而调用方（loop.py）用 `stats.get("count", 0) + 1` 无条件+1，不检查 topic 是否已存在。结果：重复学习/复习同一主题会虚增知识条数，错误提升等级。
+
+### 修复内容
+
+#### 1. 学习管线：罐装 Skill 计划 + 单步重试
+
+新建 [knowledge_learning/skill.py](file:///t:/zhixuzhe/engine/skills/knowledge_learning/skill.py)：`KnowledgeLearningSkill`，封装了5步预设计划：
+1. 搜索 GitHub 权威仓库（web_search，输出owner/repo）
+2. 浅克隆仓库（run_shell git clone --depth 1，失败则 web_fetch README 替代）
+3. 探索结构并定位核心文件（list_files/search_file，输出最多5个核心文件路径）
+4. 阅读核心源码（read_file，每个文件关注数据结构/算法/接口/错误处理）
+5. 提炼结构化报告（5个固定章节：仓库定位/设计模式/代码范式/安全边界/启发）
+
+修改 [loop.py#L366-L491](file:///t:/zhixuzhe/engine/core/loop.py#L366-L491) 的 learn 命令：
+- 不再让 Brain 即兴规划，直接使用 `KnowledgeLearningSkill.plan()` 获取预定义步骤
+- 每步执行失败自动重试1次（共2次机会），重试仍失败则跳过继续执行后续步骤
+- 使用"关键失败数"判断整体是否成功（而非"任何失败就整体放弃"）：只有所有步骤都失败才终止
+- clone 失败有降级方案（web_fetch 获取 README 替代）
+- 综合结论使用 `_synthesize()` 方法，部分失败时仍能产出部分结果
+- 学习结束后自动触发经验反思（`reflect_experience`）
+
+#### 2. Profile：幂等更新 + 重复检测
+
+修改 [profile.py#L66-L151](file:///t:/zhixuzhe/engine/core/profile.py#L66-L151)：
+- `record_learning()` 不再接收 `total_count` 参数，改为自动检测：
+  - 扫描学习历史，若 `| topic名` 已存在则为复习模式，count 不变，只更新 last_study 日期
+  - 若不存在则为新学，count + 1，追加历史条目
+- 返回值改为 `dict{"is_new": bool, "count": int, "level": str}`，调用方据此显示"新学"或"复习"
+- 新增 `has_topic(parent, topic)` 公开方法，供调用方提前查询学习状态
+
+修改 [loop.py#L474-L483](file:///t:/zhixuzhe/engine/core/loop.py#L474-L483) 调用方：不再手动 +1 计数，直接调用幂等方法。
+
+### 测试验证
+
+- 82 个现有单元测试全部通过（无回归）。
+- record_knowledge() 天然幂等（os.replace 覆盖写入），复习时知识文件自动更新为最新报告。
+
 ## 2026-08-05（项目启动）
 
 ### 愿景确立
