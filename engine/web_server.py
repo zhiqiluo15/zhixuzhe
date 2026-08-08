@@ -688,14 +688,13 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
         self._ok()
         categories = agent.taxonomy.to_dict()
 
-        # 注入每个节点的已学状态
+        # 注入每个节点的已学状态（按具体主题名判断，而非按领域count）
         if agent.profile_manager:
-            profile_data = agent.profile_manager.load()
             for cat in categories:
                 for node in cat.get("children", []):
                     parent = node.get("parent", "")
-                    stats = profile_data.get("languages", {}).get(parent, {})
-                    node["learned"] = stats.get("count", 0) > 0
+                    topic_name = node.get("name", "")
+                    node["learned"] = agent.profile_manager.has_topic(parent, topic_name)
 
         self.wfile.write(json.dumps({"categories": categories}, ensure_ascii=False).encode())
 
