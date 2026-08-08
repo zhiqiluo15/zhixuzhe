@@ -74,3 +74,25 @@ class KnowledgeLearningSkill(Skill):
                 f"学模式不抄代码，重点提炼可复用的设计思想。"
             ),
         ]
+
+
+# 学习步骤失败时 step_results 中记录的标记前缀（与调用方保持一致）
+FAILED_STEP_MARK = "执行失败（重试后仍失败）"
+
+
+def is_learning_failed(step_results: list[str]) -> bool:
+    """判断一次学习任务是否整体失败（方案B：材料门槛 + 半数规则）。
+
+    规则：
+    1. 材料步骤（步骤1搜索、步骤2克隆/降级抓取）必须至少成功一个——
+       两个材料步骤都失败意味着没有任何可学习的来源，产出报告必然空洞，判定失败；
+    2. 总失败步骤数超过半数（> len(step_results) // 2）时判定失败——
+       防止计划步数增加后阈值自动放宽（旧逻辑 len(plan)-1 随步数线性放宽）。
+    """
+    material_ok = any(
+        s and not s.startswith(FAILED_STEP_MARK) for s in step_results[:2]
+    )
+    critical_failures = sum(
+        1 for s in step_results if s and s.startswith(FAILED_STEP_MARK)
+    )
+    return (not material_ok) or (critical_failures > len(step_results) // 2)

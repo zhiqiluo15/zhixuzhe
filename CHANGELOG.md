@@ -19,6 +19,31 @@
 
 ---
 
+## [2026-08-08] v1.2.12 learn 成功判定收紧：材料门槛 + 半数规则
+
+### 问题
+
+CLI（[loop.py](file:///t:/zhixuzhe/engine/core/loop.py)）与 Web（[web_server.py](file:///t:/zhixuzhe/engine/web_server.py)）的 learn 成功判定用 `critical_failures >= len(plan) - 1`，对 5 步计划意味着**挂掉 3 步（60%）仍算学习成功**，照常写知识库 + 档案 count+1。两种污染风险：
+
+1. **无材料也产出知识**：步骤 1（搜索）与步骤 2（克隆/降级抓取）全失败时，报告只能基于空材料编造，却仍被记为"已学"——是 v1.2.4 P0-2"失败也记已学"问题的宽松版复发。
+2. **阈值随计划步数自动放宽**：`len(plan)-1` 是线性公式，未来计划加长（如 8 步）容错会随之放宽到 7 步，判定语义失控。且与 v1.2.3 文档承诺"只有所有步骤都失败才终止"不符（实现比文档更松）。
+
+### 修复（方案B：材料门槛 + 半数规则）
+
+在 [knowledge_learning/skill.py](file:///t:/zhixuzhe/engine/skills/knowledge_learning/skill.py) 新增单一判定源 `is_learning_failed(step_results)`，CLI 与 Web 两处调用方统一改为调用它（消除两处重复逻辑，防再次漂移）：
+
+1. **材料门槛**：步骤 1（搜索）与步骤 2（克隆/降级抓取）必须至少成功一个，否则直接失败——没有材料来源，报告必然空洞。
+2. **半数规则**：总失败步骤数超过半数（`> len // 2`，5 步计划 = 3 步失败即失败），防计划变长后阈值自动放宽。
+
+**保留的设计**：克隆失败降级为 web_fetch README 的"README 降级学习"仍被允许（材料门槛已过、失败数未过半），不推翻 v1.2.3 的降级方案。
+
+### 验证
+
+- 新增 [test_knowledge_learning.py](file:///t:/zhixuzhe/engine/tests/test_knowledge_learning.py) 8 个用例：全成功/材料全失败/单材料成功/README 降级/恰半失败/过半失败/旧阈值误判场景/空结果兜底
+- 全部单元测试通过（82 + 8 = 90/90 全绿）
+
+---
+
 ## [2026-08-08] v1.2.11 深度体检修复：Router 空格变体 + 版本一致性 + LearningConfig
 
 基于全面深度体检结果，修复 4 个 P2/P3 级问题：

@@ -390,7 +390,10 @@ class Agent:
                 print("═" * 44 + "\n")
 
                 # 使用罐装技能计划（而非LLM即兴规划），每步有明确成功条件
-                from engine.skills.knowledge_learning.skill import KnowledgeLearningSkill
+                from engine.skills.knowledge_learning.skill import (
+                    KnowledgeLearningSkill,
+                    is_learning_failed,
+                )
                 learn_skill = KnowledgeLearningSkill(
                     topic_name=node.name,
                     search_query=self.taxonomy.generate_search_query(node_id),
@@ -453,12 +456,9 @@ class Agent:
                 except Exception:
                     pass
 
-                # 判断关键步骤是否成功（至少完成了搜索+报告）
-                critical_failures = sum(
-                    1 for s in step_results if s and s.startswith("执行失败")
-                )
-                if critical_failures >= len(plan) - 1:
-                    print(f"\n学习失败：所有关键步骤均执行失败，知识库和档案均未更新。\n")
+                # 判断学习是否成功（方案B：材料步骤至少成功一个，失败步骤不过半）
+                if is_learning_failed(step_results):
+                    print(f"\n学习失败：未获取到可学习的材料或失败步骤过多，知识库和档案均未更新。\n")
                     continue
 
                 print(f"\n═══ 学习成果 ═══\n\n{response}\n")

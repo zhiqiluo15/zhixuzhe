@@ -959,12 +959,15 @@ def _run_learn_in_background(learn_id: str, agent, node) -> None:
     关键流程：
     1. 使用罐装 Skill 计划（搜索→clone→探索→读源码→报告），单步失败重试1次
     2. clone 失败降级为 web_fetch README
-    3. 关键失败数判断：只有几乎全部步骤失败才放弃
+    3. 成功判定（方案B）：材料步骤（搜索/克隆）至少一个成功，且失败步骤不超过半数
     4. 成功则：写知识文件（幂等覆盖）+ 更新能力档案（幂等，复习不重复计数）+ 反思经验
     5. 异常兜底：任何异常都不击穿线程，记入 error
     """
     try:
-        from engine.skills.knowledge_learning.skill import KnowledgeLearningSkill
+        from engine.skills.knowledge_learning.skill import (
+            KnowledgeLearningSkill,
+            is_learning_failed,
+        )
 
         learn_skill = KnowledgeLearningSkill(
             topic_name=node.name,
@@ -1026,14 +1029,11 @@ def _run_learn_in_background(learn_id: str, agent, node) -> None:
                 sr for sr in step_results if sr and not sr.startswith("执行失败")
             )
 
-        # 判断关键失败
-        critical_failures = sum(
-            1 for s in step_results if s and s.startswith("执行失败")
-        )
-        if critical_failures >= len(plan) - 1:
+        # 判断学习是否成功（方案B：材料步骤至少成功一个，失败步骤不过半）
+        if is_learning_failed(step_results):
             with _learn_lock:
                 _learn_tasks[learn_id]["status"] = "failed"
-                _learn_tasks[learn_id]["error"] = "学习失败：关键步骤均执行失败，知识库和档案均未更新。"
+                _learn_tasks[learn_id]["error"] = "学习失败：未获取到可学习的材料或失败步骤过多，知识库和档案均未更新。"
             return
 
         # 写知识文件（幂等覆盖）
