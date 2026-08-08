@@ -140,7 +140,7 @@ class ModelConfig:
     provider: str = "deepseek"
     model: str = "deepseek-v4-flash"
     base_url: str = "https://api.deepseek.com/v1"
-    temperature: float = 0.7
+    temperature: float = 0.4
     max_tokens: int = 16384
     request_timeout: int = 60
     max_retries: int = 3

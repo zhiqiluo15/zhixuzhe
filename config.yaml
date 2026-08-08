@@ -6,7 +6,7 @@ model:
   provider: deepseek
   model: deepseek-v4-flash
   base_url: https://api.deepseek.com/v1
-  temperature: 0.7
+  temperature: 0.4
   max_tokens: 16384  # V4-Flash 最大输出 384K，保持 16K 避免冗长回复
   request_timeout: 60
   max_retries: 3

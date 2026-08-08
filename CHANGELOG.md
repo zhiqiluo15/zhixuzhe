@@ -19,6 +19,34 @@
 
 ---
 
+## [2026-08-08] v1.2.9 问题排查 + 防编造加固
+
+### 排查结论：6个问题的真实状态
+
+| 编号 | 问题 | 状态 | 说明 |
+|------|------|------|------|
+| P0 | 知识文件解析断裂 | ✅ **已修复**（v1.2.5） | 实测可正常检索"uv包管理"知识，score=2.0 |
+| P0 | Brain编造工具执行结果 | 🔧 **已加固** | V4-Flash实测流式模式不输出预编造文本，但System Prompt偏弱，已加固 |
+| P1 | 学习管线脆弱（无检查点） | 🟡 **部分缓解** | 已有罐装计划+单步重试+关键步骤检测，但无持久化检查点（P2级改进） |
+| P1 | Profile重复计数 | ✅ **已修复**（v1.2.5） | 实测Python count=1与实际文件数一致 |
+| P2 | 回复不稳定（同问不同答） | 🔧 **已缓解** | temperature 0.7→0.4，降低随机性 |
+| P2 | 检索质量粗糙（2-gram） | 🟡 **已知限制** | 当前为2-gram关键词匹配，无语义检索，待后续升级 |
+
+### 加固措施
+
+1. **System Prompt 防编造（3处）**：
+   - [loop.py SYSTEM_PROMPT](file:///t:/zhixuzhe/engine/core/loop.py#L27-L35)：从3条弱规则扩展为6条严格规则，明确禁止编造工具结果、禁止在工具结果上添油加醋、工具失败必须如实报告
+   - [task.py EXECUTE_SYSTEM](file:///t:/zhixuzhe/engine/core/task.py#L42-L51)：增加"禁止编造数据/搜索结果/文件内容/命令输出"
+   - [task.py SYNTHESIZE_SYSTEM](file:///t:/zhixuzhe/engine/core/task.py#L54-L64)：综合阶段禁止编造步骤中没有的信息
+   
+2. **Temperature 下调**（[config.yaml](file:///t:/zhixuzhe/config.yaml#L9)、[config.py](file:///t:/zhixuzhe/engine/config.py#L143)）：0.7→0.4，同问题回复一致性显著提升，保留适度自然语言多样性
+
+### 实测验证
+- DeepSeek-V4-Flash 在问题"今天北京天气"时：正确调用web_search工具，content为空（不预输出文本），不编造
+- 82/82 单元测试全绿
+
+---
+
 ## [2026-08-08] v1.2.8 修复：Web 启动 ModuleNotFoundError
 
 ### 问题
