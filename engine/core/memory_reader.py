@@ -69,9 +69,14 @@ def _jaccard_similarity(a: str, b: str) -> float:
 # ── 条目解析 ──
 
 def _parse_diary_entries(content: str) -> list[dict]:
-    """将日记文件中 ## 开头的条目解析为 {title, body} 列表
+    """将 Markdown 文件按 ## 分段解析为 {title, body} 列表。
 
-    跳过头部的叙述段落（时间戳之前的内容）。
+    通用解析器，兼容三种文件格式：
+    - 日记：## HH:MM:SS 或 ## [任务] HH:MM:SS
+    - 经验：## HH:MM:SS
+    - 知识：## 标题文字（无时间戳），### 子标题保留在 body 中
+
+    第一个 ## 之前为文件头（叙述/元数据），跳过。
     """
     entries: list[dict] = []
     lines = content.split("\n")
@@ -80,7 +85,8 @@ def _parse_diary_entries(content: str) -> list[dict]:
     in_header = True  # 第一个 ## 之前为文件头
 
     for line in lines:
-        if line.startswith("## ") and _is_timestamped(line):
+        # ## 开头（但不是 ### 子标题）= 新条目开始
+        if line.startswith("## ") and not line.startswith("### "):
             if current_body:
                 entries.append({
                     "title": current_title,
@@ -103,8 +109,11 @@ def _parse_diary_entries(content: str) -> list[dict]:
 
 
 def _is_timestamped(line: str) -> bool:
-    """判断 ## 行是否以时间戳开头（## HH:MM 或 ## [任务] HH:MM）"""
-    bare = line[3:].strip()
+    """判断 ## 行是否以时间戳开头（## HH:MM 或 ## [任务] HH:MM）。
+
+    保留此函数供外部判断条目类型用（日记/经验条目有时间戳，知识条目无）。
+    """
+    bare = line[3:].strip() if line.startswith("## ") else line.strip()
     # ## HH:MM:SS
     if re.match(r"\d{2}:\d{2}:\d{2}", bare):
         return True

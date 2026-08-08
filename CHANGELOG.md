@@ -1037,3 +1037,42 @@ CHANGELOG 上一版的「下阶段可推进项 ③」——验证"Recorder 写�
                                     ↓
                               下次同类提问 → MemoryManager 检索注入 → Agent 复用教训
 ```
+
+---
+
+## [2026-08-08] v1.2.2 P0 修复：知识文件解析断裂
+
+### 问题诊断
+
+**P0 严重 bug**：知识文件解析器完全无法工作。`_parse_diary_entries()` 使用 `_is_timestamped(line)` 要求所有 `## ` 开头的条目必须带 `HH:MM:SS` 时间戳，但知识文件（`memory/knowledge/languages/**/*.md`）的格式是 `## 学习报告：xxx`（无时间戳），导致：
+
+1. `in_header` 标志始终为 `True`
+2. 整个知识文件被当作"文件头"跳过
+3. `_parse_diary_entries()` 返回空列表 `[]`
+4. `retrieve_knowledge()` 返回 0 条结果
+5. **已学习的知识无法被检索注入，学习闭环在"检索注入"环节完全断裂**——之前学的 uv 包管理知识虽然写入了文件，但下次提问根本找不到。
+
+实测验证：`包管理.md`（1条知识）修复前返回 0 条，修复后返回 1 条。
+
+### 修复内容
+
+[memory_reader.py](file:///t:/zhixuzhe/engine/core/memory_reader.py#L71-L108)：重写 `_parse_diary_entries()` 分段逻辑：
+
+- **旧逻辑**：`if line.startswith("## ") and _is_timestamped(line)` —— 要求 `## ` 后必须跟时间戳
+- **新逻辑**：`if line.startswith("## ") and not line.startswith("### ")` —— 以任意 `## `（二级标题）为条目边界，`### `（三级标题）作为子标题保留在 body 中
+
+这是一个通用解析器，三种文件格式统一兼容：
+- 日记：`## HH:MM:SS` 或 `## [任务] HH:MM:SS` ✅
+- 经验：`## HH:MM:SS` ✅
+- 知识：`## 标题文字（无时间戳）`，`###` 子标题在 body 内 ✅
+
+`_is_timestamped()` 函数保留（修复了对裸 `## ` 前缀的健壮性），供未来需要区分条目类型时使用。
+
+### 测试验证
+
+- 原有 79 个单元测试全部通过，无回归。
+- 新增 3 个单元测试（[test_memory.py](file:///t:/zhixuzhe/engine/tests/test_memory.py#L218-L334)）：
+  - `test_parse_knowledge_entries`：知识文件格式正确解析为 1 条，`###` 子标题保留在 body
+  - `test_parse_diary_entries_with_timestamps`：日记/经验时间戳格式向后兼容（2 条）
+  - `test_knowledge_retrieval_from_file`：端到端写入知识文件后 `retrieve_knowledge()` 可正确检索
+- 真实文件验证：包管理.md（知识）从 0 条→1 条，20260807.md（经验）2 条正确，20260807.md（日记）30 条正确。

@@ -17,7 +17,7 @@ from engine.brain.base import Brain, Message
 from engine.tools.registry import ToolRegistry, Tool
 from engine.core.recorder import Recorder
 from engine.core.loop import Agent
-from engine.core.memory_reader import MemoryReader
+from engine.core.memory_reader import MemoryReader, _parse_diary_entries
 from engine.core.memory_manager import MemoryManager
 
 
@@ -211,6 +211,127 @@ def test_experience_retrieval(root: Path):
         "经验内容应包含 OOM 或 batch size 相关信息"
 
     print("\n  ✅ 测试 D 通过：经验检索正常\n")
+
+
+# ── 测试 5：知识文件解析（无时间戳的 ## 标题）──
+
+def test_parse_knowledge_entries():
+    """_parse_diary_entries 应正确解析无时间戳的知识文件格式。
+
+    知识文件格式：# 标题 + 元数据头 + ## 主标题 + ### 子标题（属于 body）
+    修复 P0 bug 前，解析器要求 ## 后必须有时间戳，导致知识文件返回 0 条。
+    """
+    print("=" * 60)
+    print("测试 E: 知识文件格式解析（无时间戳 ## 标题）")
+    print("=" * 60)
+
+    knowledge_md = """# FastAPI 最佳实践
+
+> 领域：Python
+> 学习时间：2026-08-08
+
+---
+
+## 学习报告：FastAPI 核心设计模式
+
+### 1. 依赖注入系统
+
+FastAPI 使用 Depends() 实现依赖注入...
+
+### 2. Pydantic 数据校验
+
+所有请求/响应模型通过 Pydantic 定义...
+
+### 3. 安全中间件
+
+推荐用 OAuth2PasswordBearer 处理认证...
+"""
+
+    entries = _parse_diary_entries(knowledge_md)
+    print(f"  解析出条目数: {len(entries)}")
+    assert len(entries) == 1, f"应解析出 1 条知识条目，实际 {len(entries)} 条"
+
+    entry = entries[0]
+    print(f"  title: {entry['title']}")
+    assert "学习报告" in entry["title"], "标题应包含学习报告文字"
+    assert "FastAPI" in entry["body"], "body 应包含 FastAPI 内容"
+    assert "依赖注入" in entry["body"], "body 应包含子标题内容"
+    assert "Pydantic" in entry["body"], "### 子标题内容应保留在 body 中"
+
+    print("  ✅ 测试 E 通过：知识文件格式正确解析\n")
+
+
+def test_parse_diary_entries_with_timestamps():
+    """_parse_diary_entries 应继续兼容日记/经验文件的时间戳格式。"""
+    print("=" * 60)
+    print("测试 F: 日记/经验格式兼容（有时间戳 ## 标题）")
+    print("=" * 60)
+
+    diary_md = """# 智序者日记 - 2026-08-08
+
+## 10:30:15
+
+**问**：你好
+**答**：你好！
+
+---
+
+## [任务] 11:20:33
+
+**目标**：检测硬件
+**计划**：...
+"""
+
+    entries = _parse_diary_entries(diary_md)
+    print(f"  解析出条目数: {len(entries)}")
+    assert len(entries) == 2, f"应解析出 2 条，实际 {len(entries)} 条"
+    assert entries[0]["title"] == "10:30:15", "第一条标题应为时间戳"
+    assert entries[1]["title"] == "[任务] 11:20:33", "第二条标题应包含[任务]标记"
+
+    print("  ✅ 测试 F 通过：日记格式向后兼容\n")
+
+
+def test_knowledge_retrieval_from_file(root: Path):
+    """写入知识文件后，retrieve_knowledge 应能检索到内容。"""
+    print("=" * 60)
+    print("测试 G: 知识文件端到端检索")
+    print("=" * 60)
+
+    # 创建知识目录和文件
+    knowledge_dir = root / "memory" / "knowledge" / "languages" / "Python"
+    knowledge_dir.mkdir(parents=True, exist_ok=True)
+    knowledge_file = knowledge_dir / "FastAPI.md"
+    knowledge_file.write_text("""# FastAPI
+
+> 领域：Python
+> 学习时间：2026-08-08
+
+---
+
+## 学习报告：FastAPI 异步编程最佳实践
+
+### 核心概念
+FastAPI 基于 Starlette 构建，原生支持 async/await。
+使用 Depends() 进行依赖注入，Pydantic 做数据校验。
+
+### 性能要点
+异步路由函数应使用 async def，避免阻塞 IO 操作。
+数据库操作推荐使用 SQLAlchemy 2.0 的 async 引擎。
+""", encoding="utf-8")
+
+    reader = MemoryReader(root=root)
+    results = reader.retrieve_knowledge("FastAPI 异步 async Pydantic", top_k=3)
+
+    print(f"  检索到知识条目: {len(results)} 条")
+    for r in results:
+        print(f"  - score={r['score']} date={r['date']}")
+        print(f"    content: {r['content'][:100]}...")
+
+    assert len(results) > 0, "应能检索到刚写入的知识文件"
+    assert any("FastAPI" in r["content"] for r in results), "检索结果应包含 FastAPI"
+    assert any("Pydantic" in r["content"] for r in results), "检索结果应包含 Pydantic"
+
+    print("  ✅ 测试 G 通过：知识文件端到端检索正常\n")
 
 
 # ── 运行 ──
