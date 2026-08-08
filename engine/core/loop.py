@@ -255,11 +255,14 @@ class Agent:
         else:
             hitl_cb = None
 
+        # 收集本轮 ReAct 统计（用于判断是否触发经验反思）
+        react_stats: dict = {}
         response = react_loop(
             self.brain, messages, self.tools,
             confirm_callback=hitl_cb,
             stream_callback=cb,
             tool_callback=tool_callback,
+            stats=react_stats,
         )
 
         # CLI 模式换行
@@ -274,6 +277,16 @@ class Agent:
         # 持久化对话历史
         if self.history_store:
             self.history_store.save(self.history)
+
+        # 普通对话经验反思：有工具调用 = 做了实际操作，可能产生可复用教训
+        # 纯文本闲聊/问答不触发，避免经验库膨胀
+        tool_calls = react_stats.get("tool_calls", 0)
+        if tool_calls > 0:
+            logger.debug(f"普通对话触发经验反思（{tool_calls} 次工具调用）")
+            try:
+                self.task_runner.reflect_experience(user_input, response.content)
+            except Exception as e:
+                logger.debug(f"普通对话经验反思失败（不阻断主流程）: {e}")
 
         return response.content
 

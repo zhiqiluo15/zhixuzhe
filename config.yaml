@@ -13,7 +13,7 @@ model:
 
 # ── Agent ──
 agent:
-  max_tool_rounds: 10         # 普通对话 ReAct 循环最大工具调用轮次
+  max_tool_rounds: 15         # 普通对话 ReAct 循环最大工具调用轮次（从10提升，覆盖复杂查询）
   max_tool_output_chars: 32000 # 单次工具输出截断长度
   confirm_tools: [run_shell, batch_files]   # 需要 HITL 确认的工具（batch_files 是批量破坏性操作，必须人审）
   auto_task: true             # 普通对话中让 Brain 判断是否自动升级为任务模式（多一步轻量 API 调用）
@@ -22,7 +22,7 @@ agent:
 task:
   max_steps: 8                # 最多执行步骤数
   plan_retries: 3             # 规划解析重试次数
-  max_tool_rounds: 15         # 任务模式下每一步的工具调用轮次上限（高于普通对话）
+  max_tool_rounds: 25         # 任务模式下每一步的工具调用轮次上限（从15→25，解决学习任务源码阅读轮次耗尽问题）
 
 # ── 记忆 ──
 memory:

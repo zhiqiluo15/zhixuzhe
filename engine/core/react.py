@@ -60,6 +60,7 @@ def react_loop(
     confirm_callback: ConfirmCallback | None = None,
     stream_callback: StreamCallback | None = None,
     tool_callback: ToolEventCallback | None = None,
+    stats: dict | None = None,
 ) -> Message:
     """执行一次 ReAct 循环：思考 → 工具调用 → 执行 → 再思考，返回最终 Message。
 
@@ -68,11 +69,13 @@ def react_loop(
         confirm_callback: 可选 HITL 确认回调
         stream_callback: 可选流式回调，每收到一个 token 文本块时触发
         tool_callback: 可选工具事件回调，工具调用前后触发，用于前端展示进度
+        stats: 可选统计字典，回传执行统计（如 {"tool_calls": int}）
     """
     if max_rounds is None:
         max_rounds = config.agent.max_tool_rounds
 
     tool_specs = tools.to_openai_specs() or None
+    tool_call_count = 0
 
     # 首轮思考
     response = _get_response(brain, messages, tool_specs, stream_callback)
@@ -89,6 +92,7 @@ def react_loop(
             except json.JSONDecodeError:
                 args = {}
 
+            tool_call_count += 1
             logger.debug(f"工具调用 [轮次 {round_i + 1}]: {name}({args})")
 
             if tool_callback is not None:
@@ -125,6 +129,11 @@ def react_loop(
 
         # 下一轮思考（工具结果已加入 messages）
         response = _get_response(brain, messages, tool_specs, stream_callback)
+
+    # 回传统计
+    if stats is not None:
+        stats["tool_calls"] = tool_call_count
+        stats["rounds_exhausted"] = bool(response.tool_calls)
 
     # 轮次耗尽但 Brain 仍想调工具：清空 tool_calls 并标注，
     # 避免半成品 tool_calls 被存入 history 造成后续上下文混乱。

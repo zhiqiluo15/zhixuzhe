@@ -144,7 +144,7 @@ class TaskRunner:
         self.recorder.record_task(goal, plan, step_results, final, plan_source)
 
         # 5. 反思：沉淀经验（自进化闭环的"经验"环节）
-        self._reflect_experience(goal, final)
+        self.reflect_experience(goal, final)
 
         return final
 
@@ -185,8 +185,8 @@ class TaskRunner:
         final = self._synthesize(goal, plan, step_results)
         return final, step_results
 
-    def _reflect_experience(self, goal: str, final: str) -> None:
-        """任务完成后反思，让 Brain 提炼可复用经验写入 experience。
+    def reflect_experience(self, goal: str, final: str) -> None:
+        """反思并沉淀经验，公共方法供 Agent 在普通对话后调用。
 
         经验沉淀是自进化闭环的关键环节。Brain 判断本次执行是否有值得记住的
         教训，有则输出 JSON 由 Recorder 写入经验库；无则 skip，避免经验库膨胀。

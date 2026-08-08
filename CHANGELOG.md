@@ -980,3 +980,60 @@ CHANGELOG 上一版的「下阶段可推进项 ③」——验证"Recorder 写�
 
 ### 结论
 **自进化闭环的"记忆沉淀→检索注入"段已通过离线结构级验证。** 接入真实 DeepSeek API 后，这条链路无需任何代码改动即可生效：TaskRunner._reflect_experience() 调 Brain 产出 scene/lesson JSON → Recorder 写入 → 下次同类提问 build_context() 自动注入。
+
+---
+
+## [2026-08-08] v1.2.1 经验反思闭环修复 + 工具轮次提升
+
+### 问题诊断
+
+1. **经验反思闭环不完整**：原设计只有任务模式（TaskRunner）完成后才调用 `_reflect_experience()` 沉淀经验，普通对话模式（Agent.run()）虽然调用了工具、做了实际操作，但从不反思，导致大量有价值的操作教训丢失。
+2. **学习任务轮次耗尽**：`task.max_tool_rounds = 15` 在源码阅读场景中不够用。学习任务需执行 `web_search → git clone → ls 目录 → 读多个源码文件`，加上 Brain 多轮思考重试，15 轮在步骤 4/5 时频繁耗尽导致中断。
+
+### 修复内容
+
+#### 修复1：普通对话经验反思闭环（重要对话检测）
+
+**方案**：采用"工具调用触发"启发式——只有本轮对话实际调用了工具（做了实际操作），才触发经验反思；纯文本闲聊/问答不触发，避免经验库膨胀。
+
+**改动**：
+- [react.py](file:///t:/zhixuzhe/engine/core/react.py#L63)：`react_loop()` 新增 `stats: dict | None = None` 参数，循环结束后回传统计数据（`tool_calls` 次数、`rounds_exhausted` 是否轮次耗尽），对所有现有调用方完全向后兼容。
+- [task.py](file:///t:/zhixuzhe/engine/core/task.py#L188)：将 `_reflect_experience()` 改为公共方法 `reflect_experience()`，供 Agent 在普通对话后复用同一套反思逻辑，避免代码重复。
+- [loop.py](file:///t:/zhixuzhe/engine/core/loop.py#L258-L289)：`Agent.run()` 传入 `react_stats={}` 收集统计，对话结束后若 `tool_calls > 0` 则调用 `self.task_runner.reflect_experience(user_input, response.content)` 触发反思；反思失败被 try/except 包裹，不阻断主流程。
+
+**为什么不用 Brain 判断"重要对话"**：让 Brain 判断是否重要会多一次 API 调用（增加延迟和 token 成本），而"是否调用了工具"是零成本的精确信号——用了工具说明做了实际操作，大概率有可复用教训；没用工具说明只是闲聊/常识问答，无沉淀价值。
+
+#### 修复2：工具轮次上限提升
+
+| 配置项 | 旧值 | 新值 | 理由 |
+|--------|------|------|------|
+| `agent.max_tool_rounds` | 10 | 15 | 普通对话也可能需要多工具协作（搜索+读取+计算） |
+| `task.max_tool_rounds` | 15 | **25** | 学习任务源码阅读需读 3-5 个文件+查看目录+重试，25轮有充足余量 |
+
+[config.yaml](file:///t:/zhixuzhe/config.yaml#L16-L25)
+
+**安全保证**：轮次提升不削弱 HITL 保护——`run_shell` 和 `batch_files` 仍需人工确认，高风险操作无法绕过用户审批。
+
+### 验证结果
+
+- 79/79 单元测试全部通过，无回归。
+- 真实 API 验证：
+  - 纯文本问答（"你好"）：0 次工具调用 → **不触发反思** ✅（经验条数不变）
+  - 工具调用问答（"统计 engine/core/ 下 .py 文件数"）：1 次 list_files 调用 → 触发反思，Brain 判断该简单操作无独特教训（输出 `skip: true`），经验条数不变 ✅（符合预期——Brain 本身有 skip 保护，简单操作不会产生垃圾经验）
+- API Key 从 `.env` 文件正常加载，DeepSeek API 连通正常。
+
+### 自进化闭环状态更新
+
+修复后的完整闭环：
+
+```
+所有交互（普通对话 + 任务模式）
+    ↓
+实际调用了工具？
+    ├─ 否 → 纯文本，跳过反思（避免膨胀）
+    └─ 是 → reflect_experience() → Brain 判断是否有教训
+                ├─ skip: true → 无价值，跳过
+                └─ skip: false → Recorder.record_experience() 写入经验库
+                                    ↓
+                              下次同类提问 → MemoryManager 检索注入 → Agent 复用教训
+```
