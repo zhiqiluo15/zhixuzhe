@@ -1,12 +1,16 @@
-# 智序者 v1 · 启动器
+# 智序者 · 启动器
 # 用法: .\run.ps1    （PowerShell 右键运行，或在终端执行）
 
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $scriptDir
 
+# 版本号唯一来源：engine/__init__.py
+$zxVersion = python -c "from engine import __version__; print(__version__)"
+if (-not $zxVersion) { $zxVersion = "?" }
+
 Write-Host "╔══════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║          智序者 zhixuzhe v1         ║" -ForegroundColor Cyan
+Write-Host "║     智序者 zhixuzhe v$zxVersion      ║" -ForegroundColor Cyan
 Write-Host "╚══════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
 

@@ -3,8 +3,12 @@ setlocal enabledelayedexpansion
 title zhixuzhe CLI
 cd /d "%~dp0"
 
+REM 版本号唯一来源：engine/__init__.py
+for /f %%v in ('python -c "from engine import __version__; print(__version__)"') do set ZXV=%%v
+if not defined ZXV set ZXV=?
+
 echo ==========================================
-echo         zhixuzhe v1 - CLI
+echo      zhixuzhe v!ZXV! - CLI
 echo ==========================================
 echo.
 

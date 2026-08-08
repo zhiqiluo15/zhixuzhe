@@ -7,6 +7,71 @@
 
 ---
 
+## ⚠️ 版号规范（重要，务必遵守）
+
+**版本号唯一来源 = [engine/__init__.py](file:///t:/zhixuzhe/engine/__init__.py) 的 `__version__` 常量。**
+升级版本号时，**只允许**修改该常量，并在本文件顶部登记对应变更。**禁止**在任何其它地方硬编码版本字符串。
+
+- Web 页面（index/profile/knowledge.html）：通过 `__ZX_VERSION__` 占位符由 web_server 注入，改版本号后自动同步
+- CLI/Web 启动脚本（run.ps1 / run.bat / run_web.bat）：运行时读取 `engine.__version__` 动态显示
+- 每次迭代完成，统一：① 在 `engine/__init__.py` 递增版本 ② 在 CHANGELOG 顶部新增一条对应记录
+- 版本号格式：`主.次.补丁`（如 1.2.6）。主版本=大架构重构，次版本=功能迭代，补丁=P0/P1 修复
+
+---
+
+## [2026-08-08] v1.2.6 统一版号（单一来源）
+
+### 问题：版号散落且漂移
+
+此前版号散落在 7+ 处且互相不一致：config.yaml 写 v1.1、启动脚本(run.ps1/run.bat/run_web.bat)写 v1、Web 页面(index/profile.html)写 v1.2、CHANGELOG 已是 v1.2.x。无单一来源，每次迭代都有人工同步多处，必然漂移。
+
+### 修复：收敛为单一来源
+
+- [engine/__init__.py](file:///t:/zhixuzhe/engine/__init__.py)：新增 `__version__` 常量，作为唯一版本源
+- [web_server.py#L41-L50](file:///t:/zhixuzhe/engine/web_server.py#L41-L50)：新增 `_inject_version()`，将页面 `__ZX_VERSION__` 占位符替换为全局版本号
+- index.html / profile.html：badge 与标题改用 `v__ZX_VERSION__` 占位符（服务端注入）
+- run.ps1 / run.bat / run_web.bat：启动时动态读取 `engine.__version__` 显示
+- config.yaml：去掉硬编码 "v1.1"，注释指向唯一来源
+
+### 验证
+- 82/82 单元测试全绿
+- 版本注入：`/` 与 `/profile` 页面均渲染出 `v1.2.6`
+- `python -c "from engine import __version__"` 返回 1.2.6
+
+## [2026-08-08] v1.2.5 修复：知识面板"已学"状态误判 + Profile 表格腐败
+
+### 问题诊断
+
+用户反馈：只学了 Python 包管理一个主题，但知识面板上很多其他主题都显示"已学 ✅"。排查发现3个bug：
+
+1. **P0 已学状态误判**（[web_server.py#L694-L698](file:///t:/zhixuzhe/engine/web_server.py#L694-L698)）：`_serve_taxonomy` 按领域(parent)的 count>0 判断，导致 Python 下 count=1 时所有8个主题都被标为已学。
+2. **P0 表格行腐败**（[profile.py#L115-L116](file:///t:/zhixuzhe/engine/core/profile.py#L115-L116)）：`record_learning` 用 `str.replace("| Python |", new_row)` 只替换了前缀，旧行剩余内容残留。3次失败学习后表格行变成 `| Python | 入门 | 3 | 2026-08-07 | 入门 | 2 | 2026-08-07 | 入门 | 1 | 2026-08-07 |`。
+3. **P1 学习历史写入完整报告**：`summary` 参数直接截取前200字，但传入的是完整学习报告（含markdown标记、章节标题等），导致历史区冗长且含格式乱码。
+
+### 修复内容
+
+[profile.py](file:///t:/zhixuzhe/engine/core/profile.py) 重写：
+- `record_learning()`：
+  - **判断新主题**改为检查实际知识文件是否存在（`knowledge/languages/{parent}/{topic}.md`），而非字符串匹配
+  - **count统计**改为直接扫描知识目录的 `.md` 文件数，不再信任表格中的数字
+  - **表格行替换**改用正则 `re.MULTILINE` 匹配整行（`^| parent |...$`），替换整行而非前缀
+  - 新增 `_cleanup_corrupted_rows()` 自动清除同parent的重复/腐败行
+  - 历史摘要清洗：去除markdown标记（`#*`>-等），压缩空白，截取100字
+  - 正确跳过模板提示文字「（每完成一次学习任务后自动追加）」
+- 新增 `get_learned_topics(parent)` 方法返回该领域已学主题集合
+- `has_topic()` 改为直接检查知识文件是否存在（最可靠）
+- `load()` 读表格时用实际文件数覆盖count字段，自动修复历史腐败数据
+
+[web_server.py#L691-L697](file:///t:/zhixuzhe/engine/web_server.py#L691-L697)：
+- `_serve_taxonomy` 改为逐主题调用 `has_topic(parent, topic_name)` 判断，不再按领域count一刀切
+
+数据修复：重写 [abilities.md](file:///t:/zhixuzhe/memory/profile/abilities.md)，清除3次失败学习导致的腐败行和冗长报告，恢复为正确状态（Python: 1条知识，入门，2026-08-07）。
+
+### 验证
+- 82/82 单元测试全绿
+- API验证：`/taxonomy` 返回只有 `Python/包管理` learned=true，其余7个Python主题均为false
+- `/profile/data` 返回 count=1，level=入门，history简洁无乱码
+
 ## [2026-08-08] v1.2.3 P1 修复：学习管线健壮性 + Profile 幂等更新
 
 ### 问题诊断
@@ -97,40 +162,6 @@
 - 82/82 单元测试全绿
 - 浏览器实测：列表/查看/Markdown渲染/搜索/弹窗均正常
 - 页面导航不再出现 API Key 设置闪烁
-
-## [2026-08-08] v1.2.5 修复：知识面板"已学"状态误判 + Profile表格腐败
-
-### 问题诊断
-
-用户反馈：只学了 Python 包管理一个主题，但知识面板上很多其他主题都显示"已学 ✅"。排查发现3个bug：
-
-1. **P0 已学状态误判**（[web_server.py#L694-L698](file:///t:/zhixuzhe/engine/web_server.py#L694-L698)）：`_serve_taxonomy` 按领域(parent)的 count>0 判断，导致 Python 下 count=1 时所有8个主题都被标为已学。
-2. **P0 表格行腐败**（[profile.py#L115-L116](file:///t:/zhixuzhe/engine/core/profile.py#L115-L116)）：`record_learning` 用 `str.replace("| Python |", new_row)` 只替换了前缀，旧行剩余内容残留。3次失败学习后表格行变成 `| Python | 入门 | 3 | 2026-08-07 | 入门 | 2 | 2026-08-07 | 入门 | 1 | 2026-08-07 |`。
-3. **P1 学习历史写入完整报告**：`summary` 参数直接截取前200字，但传入的是完整学习报告（含markdown标记、章节标题等），导致历史区冗长且含格式乱码。
-
-### 修复内容
-
-[profile.py](file:///t:/zhixuzhe/engine/core/profile.py) 重写：
-- `record_learning()`：
-  - **判断新主题**改为检查实际知识文件是否存在（`knowledge/languages/{parent}/{topic}.md`），而非字符串匹配
-  - **count统计**改为直接扫描知识目录的 `.md` 文件数，不再信任表格中的数字
-  - **表格行替换**改用正则 `re.MULTILINE` 匹配整行（`^| parent |...$`），替换整行而非前缀
-  - 新增 `_cleanup_corrupted_rows()` 自动清除同parent的重复/腐败行
-  - 历史摘要清洗：去除markdown标记（`#*`>-等），压缩空白，截取100字
-  - 正确跳过模板提示文字「（每完成一次学习任务后自动追加）」
-- 新增 `get_learned_topics(parent)` 方法返回该领域已学主题集合
-- `has_topic()` 改为直接检查知识文件是否存在（最可靠）
-- `load()` 读表格时用实际文件数覆盖count字段，自动修复历史腐败数据
-
-[web_server.py#L691-L697](file:///t:/zhixuzhe/engine/web_server.py#L691-L697)：
-- `_serve_taxonomy` 改为逐主题调用 `has_topic(parent, topic_name)` 判断，不再按领域count一刀切
-
-数据修复：重写 [abilities.md](file:///t:/zhixuzhe/memory/profile/abilities.md)，清除3次失败学习导致的腐败行和冗长报告，恢复为正确状态（Python: 1条知识，入门，2026-08-07）。
-
-### 验证
-- 82/82 单元测试全绿
-- API验证：`/taxonomy` 返回只有 `Python/包管理` learned=true，其余7个Python主题均为false
-- `/profile/data` 返回 count=1，level=入门，history简洁无乱码
 
 ## 2026-08-05（项目启动）
 

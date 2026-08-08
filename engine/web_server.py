@@ -38,6 +38,17 @@ logger = logging.getLogger("zhixuzhe.web_server")
 ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
+# 版本唯一来源：engine/__init__.py（禁止在本模块硬编码版本字符串）
+from engine import __version__ as ZX_VERSION
+
+# 页面版本占位符 → 注入统一版本号
+_VERSION_TOKEN = "__ZX_VERSION__"
+
+
+def _inject_version(html: str) -> str:
+    """把页面中的 __ZX_VERSION__ 占位符替换为全局版本号"""
+    return html.replace(_VERSION_TOKEN, ZX_VERSION)
+
 # ── 全局状态 ──
 
 _agent = None
@@ -189,7 +200,7 @@ def _load_page() -> str:
         return _PAGE
     html_path = WEB_DIR / "index.html"
     if html_path.exists():
-        _PAGE = html_path.read_text(encoding="utf-8")
+        _PAGE = _inject_version(html_path.read_text(encoding="utf-8"))
     else:
         _PAGE = "<h1>index.html 未找到</h1>"
     return _PAGE
@@ -660,7 +671,7 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
         self.end_headers()
         profile_path = WEB_DIR / "profile.html"
         if profile_path.exists():
-            self.wfile.write(profile_path.read_text(encoding="utf-8").encode())
+            self.wfile.write(_inject_version(profile_path.read_text(encoding="utf-8")).encode())
         else:
             self.wfile.write("<h1>profile.html 未找到</h1>".encode())
 
