@@ -85,9 +85,18 @@
 - 幂等 `record_learning()`（复习不重复计数）
 - 学习结束自动触发经验反思
 
+### 修复：对话页 API Key 覆盖层闪烁
+
+[index.html#L361](file:///t:/zhixuzhe/engine/web/index.html#L361)：`#setup-overlay` 初始 HTML 加上 `class="hidden"`。
+
+**原因**：原 CSS 默认 `display: flex`（可见），页面加载后要等 `checkStatus()` 异步请求 `/status` 返回才加 `.hidden` 隐藏。从知识面板/profile 页返回对话页时，浏览器重新渲染页面，覆盖层会先闪一下再消失。
+
+**修复**：默认隐藏，只有 `/status` 返回 `ready: false` 时才移除 `.hidden` 显示设置界面。已配置用户在页面加载全程看不到闪烁。
+
 ### 验证
 - 82/82 单元测试全绿
 - 浏览器实测：列表/查看/Markdown渲染/搜索/弹窗均正常
+- 页面导航不再出现 API Key 设置闪烁
 
 ## 2026-08-05（项目启动）
 
