@@ -138,10 +138,10 @@ def _parse_value(val: str):
 @dataclass
 class ModelConfig:
     provider: str = "deepseek"
-    model: str = "deepseek-v4-pro"
+    model: str = "deepseek-v4-flash"
     base_url: str = "https://api.deepseek.com/v1"
     temperature: float = 0.7
-    max_tokens: int = 4096
+    max_tokens: int = 16384
     request_timeout: int = 60
     max_retries: int = 3
 

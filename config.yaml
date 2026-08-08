@@ -4,10 +4,10 @@
 # ── 模型 ──
 model:
   provider: deepseek
-  model: deepseek-v4-pro
+  model: deepseek-v4-flash
   base_url: https://api.deepseek.com/v1
   temperature: 0.7
-  max_tokens: 16384  # 2026-08-07 从 4096 提高，避免长回复被截断。DeepSeek V4 Pro 支持 32K 输出
+  max_tokens: 16384  # V4-Flash 最大输出 384K，保持 16K 避免冗长回复
   request_timeout: 60
   max_retries: 3
 

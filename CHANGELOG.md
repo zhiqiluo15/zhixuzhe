@@ -19,6 +19,43 @@
 
 ---
 
+## [2026-08-08] v1.2.7 基座模型切换为 DeepSeek-V4-Flash
+
+### 变更：deepseek-v4-pro → deepseek-v4-flash
+
+将默认推理基座从 DeepSeek-V4-Pro 切换至 **DeepSeek-V4-Flash 正式版(0731)**。
+
+- **模型ID**：`deepseek-v4-flash`（base_url/api_key 不变，仍为 `https://api.deepseek.com/v1`）
+- **改动范围**：仅 [config.yaml](file:///t:/zhixuzhe/config.yaml#L7) 和 [config.py ModelConfig 默认值](file:///t:/zhixuzhe/engine/config.py#L141)，零代码逻辑改动（API 完全兼容 OpenAI ChatCompletions 格式）
+- **[config.py](file:///t:/zhixuzhe/engine/config.py#L144)**：同步修正 ModelConfig 默认 max_tokens 从 4096 → 16384（与 config.yaml 一致，此前遗漏）
+
+### 切换理由
+
+| 维度 | V4-Pro | V4-Flash(0731) |
+|------|--------|----------------|
+| 参数量 | 1.6T/49B激活 | 284B/13B激活 |
+| 上下文 | 1M | 1M |
+| 最大输出 | 32K | 384K |
+| 输入价格 | $0.435/M tokens | $0.14/M tokens（约 1/3） |
+| 输出价格 | $0.87/M tokens | $0.28/M tokens（约 1/3） |
+| Agent基准(Terminal Bench 2.1) | preview低于Flash正式版 | **82.7**（超过Pro-Preview） |
+| Tool Calling | 支持 | **原生支持**（专为Agent/Codex优化） |
+| 首token延迟 | ~0.6s | ~0.3s |
+
+V4-Flash 正式版(0731)于 2026-07-31 上线公测，后训练专门优化了 Agent 和 Coding 场景，DeepSeek 官方报告其在9项Agent基准测试上超过 V4-Pro-Preview。对智序者这种重度依赖工具调用的Agent场景，Flash 在性价比和速度上都是更优选择。
+
+### 兼容性
+- 无需修改 API Key
+- 无需修改 [deepseek_api.py](file:///t:/zhixuzhe/engine/brain/deepseek_api.py)（接口完全兼容）
+- 工具调用(Function Calling)格式不变
+
+### 验证
+- 82/82 单元测试全绿
+- API连通性测试：直答正常（回复"模型切换成功"）
+- 工具调用测试：正确触发 `get_weather` 函数调用
+
+---
+
 ## [2026-08-08] v1.2.6 统一版号（单一来源）
 
 ### 问题：版号散落且漂移
