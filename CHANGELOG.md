@@ -19,6 +19,30 @@
 
 ---
 
+## [2026-08-08] v1.2.8 修复：Web 启动 ModuleNotFoundError
+
+### 问题
+
+v1.2.6 引入统一版号时，在 [web_server.py#L42](file:///t:/zhixuzhe/engine/web_server.py#L42) 添加了顶层 `from engine import __version__`，但没有考虑到 run_web.bat 是以 `python engine\web_server.py`（直接运行脚本，非 `python -m`）启动的。Python 直接运行脚本时会把脚本所在目录（`engine/`）加入 sys.path[0]，而非项目根，导致 `from engine import ...` 报 `ModuleNotFoundError: No module named 'engine'`。
+
+此前其他 `from engine.xxx import yyy` 导入都在函数内部、且在 [web_server.py#L71](file:///t:/zhixuzhe/engine/web_server.py#L71) `sys.path.insert(0, str(ROOT))` 之后执行，所以不报错；但顶层版本导入在 sys.path 设置之前，直接崩。
+
+### 修复
+
+在 [web_server.py#L41-L44](file:///t:/zhixuzhe/engine/web_server.py#L41-L44) 顶层版本导入之前，先把 ROOT 加入 sys.path：
+
+```python
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from engine import __version__ as ZX_VERSION
+```
+
+### 验证
+- `python engine\web_server.py 8080` 启动正常，PID 存活
+- 82/82 单元测试全绿
+
+---
+
 ## [2026-08-08] v1.2.7 基座模型切换为 DeepSeek-V4-Flash
 
 ### 变更：deepseek-v4-pro → deepseek-v4-flash

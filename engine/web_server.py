@@ -38,6 +38,11 @@ logger = logging.getLogger("zhixuzhe.web_server")
 ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
+# 确保项目根在 sys.path 中（脚本直接 python engine/web_server.py 运行时需要，
+# 因为 Python 会把 engine/ 目录而非项目根加入 sys.path[0]）
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 # 版本唯一来源：engine/__init__.py（禁止在本模块硬编码版本字符串）
 from engine import __version__ as ZX_VERSION
 
