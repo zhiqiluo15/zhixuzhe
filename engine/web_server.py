@@ -728,7 +728,7 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
         self.end_headers()
         knowledge_path = WEB_DIR / "knowledge.html"
         if knowledge_path.exists():
-            self.wfile.write(knowledge_path.read_text(encoding="utf-8").encode())
+            self.wfile.write(_inject_version(knowledge_path.read_text(encoding="utf-8")).encode())
         else:
             self.wfile.write("<h1>knowledge.html 未找到</h1>".encode())
 

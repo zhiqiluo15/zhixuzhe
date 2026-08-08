@@ -19,6 +19,41 @@
 
 ---
 
+## [2026-08-08] v1.2.11 深度体检修复：Router 空格变体 + 版本一致性 + LearningConfig
+
+基于全面深度体检结果，修复 4 个 P2/P3 级问题：
+
+### P2 Router 中文触发词空格变体缺口
+
+- **问题**：[engine/skills/hardware_check/skill.py](file:///t:/zhixuzhe/engine/skills/hardware_check/skill.py#L17-L33) 中文触发词只有无空格形式（"检查GPU"），但自然口语常带空格（"检查 GPU"、"GPU 检测"、"检查 硬件"）。Router 采用子串匹配，对空格敏感，导致这些常见口语表达无法命中 hardware_check。
+- **修复**：新增 8 个带空格变体——检查 GPU / GPU 是否可用 / GPU 检测 / 检测 GPU / 检查 硬件 / 硬件 检测 / 检查 配置 / 检测 配置 / 硬件 信息 / 硬件 诊断。
+- **验证**："检查 GPU"、"GPU 检测"、"检查 硬件"、"硬件 检测" 均正确命中 hardware_check，未影响 web_research 等其他技能。
+
+### P2 factory.py 注释过期
+
+- **问题**：[engine/factory.py](file:///t:/zhixuzhe/engine/factory.py#L13-L16) 的 `create_agent` 文档写"6 个工具"，但当前实际注册 11 个工具；且未提及 5 个技能和知识学习组件，文档与实现严重不符。
+- **修复**：更新为"11 个工具、5 个技能、记忆组件、知识学习组件"，与当前架构一致。
+
+### P2 knowledge.html 版本号未注入
+
+- **问题**：[engine/web/knowledge.html](file:///t:/zhixuzhe/engine/web/knowledge.html#L6) 标题无 `__ZX_VERSION__` 占位符，且 [engine/web_server.py#L731](file:///t:/zhixuzhe/engine/web_server.py#L731) 服务该页面时未调用 `_inject_version()`，导致知识库页面不显示版本号，与 index/profile 页面不一致。
+- **修复**：knowledge.html 标题加上 `v__ZX_VERSION__`；web_server.py `_serve_knowledge_page()` 写入前调用 `_inject_version()`。
+- **验证**：`/_serve_knowledge_page` 渲染标题含 `v1.2.11`。
+
+### P3 config.py 缺少 LearningConfig
+
+- **问题**：[config.yaml](file:///t:/zhixuzhe/config.yaml#L52-L58) 定义了 `learning` 段（repo_dir / knowledge_dir / max_repo_size_mb 等），但 [engine/config.py](file:///t:/zhixuzhe/engine/config.py) 无对应 `LearningConfig` 数据类，Config 对象也不包含 `learning` 字段，导致该段配置是"死配置"——yaml 里写了但代码读不到。
+- **修复**：新增 `LearningConfig` 数据类，默认值与 config.yaml 一致；Config 添加 `learning` 字段；`load_config()` 增加 learning 段合并逻辑。
+- **验证**：`config.learning.repo_dir` / `knowledge_dir` / `max_repo_size_mb` / `max_repo_depth` / `max_source_files` 均正确加载。
+
+### 验证
+
+- 82/82 单元测试全绿，无回归
+- Router 空格变体验证全部命中
+- 三页面版本号一致注入 v1.2.11
+
+---
+
 ## [2026-08-08] v1.2.10 深度体检修复：Router触发词 + 检索精度 + API鲁棒性
 
 深度体检检出并修复 3 个问题：

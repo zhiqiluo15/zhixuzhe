@@ -22,7 +22,10 @@ class HardwareCheckSkill(Skill):
         "硬件信息", "检测配置", "检查配置",
         "能微调吗", "能不能微调", "微调可行",
         "显存够不够", "显存够吗",
-        "检查GPU", "GPU是否可用", "硬件诊断",
+        "检查GPU", "检查 GPU", "GPU是否可用", "GPU 是否可用", "硬件诊断",
+        # 带空格的中文口语变体（子串匹配对空格敏感，需显式覆盖）
+        "GPU 检测", "检测 GPU", "检查 硬件", "硬件 检测",
+        "检查 配置", "检测 配置", "硬件 信息", "硬件 诊断",
         # 英文（注意子串匹配对语序敏感，需覆盖自然表达的多种语序）
         "detect host", "check hardware", "hardware check",
         "system info", "system information",

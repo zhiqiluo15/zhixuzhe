@@ -198,6 +198,15 @@ class ToolsConfig:
 
 
 @dataclass
+class LearningConfig:
+    repo_dir: str = "memory/knowledge/repos"
+    knowledge_dir: str = "memory/knowledge/languages"
+    max_repo_size_mb: int = 200
+    max_repo_depth: int = 1
+    max_source_files: int = 5
+
+
+@dataclass
 class Config:
     """智序者全局配置"""
     model: ModelConfig = field(default_factory=ModelConfig)
@@ -206,6 +215,7 @@ class Config:
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
+    learning: LearningConfig = field(default_factory=LearningConfig)
 
 
 def load_config(path: Path | str | None = None) -> Config:
@@ -273,6 +283,12 @@ def load_config(path: Path | str | None = None) -> Config:
                 k: v for k, v in tools_data["file"].items()
                 if k in FileToolConfig.__dataclass_fields__
             })
+
+    if "learning" in data:
+        cfg.learning = LearningConfig(**{
+            k: v for k, v in data["learning"].items()
+            if k in LearningConfig.__dataclass_fields__
+        })
 
     return cfg
 
