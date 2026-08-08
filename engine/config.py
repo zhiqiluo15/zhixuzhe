@@ -208,17 +208,19 @@ class Config:
     tools: ToolsConfig = field(default_factory=ToolsConfig)
 
 
-def load_config(path: Path | None = None) -> Config:
+def load_config(path: Path | str | None = None) -> Config:
     """从 YAML 文件加载配置，返回 Config 实例。
 
     Args:
-        path: 配置文件路径，默认项目根 config.yaml
+        path: 配置文件路径（Path 或 str），默认项目根 config.yaml
 
     Returns:
         Config 实例，文件不存在时返回默认配置
     """
     if path is None:
         path = _PROJECT_ROOT / "config.yaml"
+    elif isinstance(path, str):
+        path = Path(path)
 
     cfg = Config()
 

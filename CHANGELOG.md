@@ -19,6 +19,37 @@
 
 ---
 
+## [2026-08-08] v1.2.10 深度体检修复：Router触发词 + 检索精度 + API鲁棒性
+
+深度体检检出并修复 3 个问题：
+
+### P1 Router 英文触发词语序缺口
+
+- **问题**：[hardware_check/skill.py](file:///t:/zhixuzhe/engine/skills/hardware_check/skill.py#L26-L32) 英文触发词只有 "gpu check"，缺少自然英文语序 "check GPU"，子串匹配对语序敏感导致 `"check GPU availability"`、`"verify GPU"`、`"GPU available?"` 等常用英文表达均不命中。
+- **修复**：补齐 8 个英文触发词变体——check gpu / verify gpu / gpu available / gpu availability / is gpu working / check if gpu / check my hardware / system information / hardware info。
+- **教训**：子串匹配对词序敏感，设计触发词时需考虑自然语言的多种语序表达，尤其是动宾倒装（GPU check vs check GPU）。
+
+### P2 Memory 检索假阳性（停用词不全）
+
+- **问题**：[memory_reader.py](file:///t:/zhixuzhe/engine/core/memory_reader.py#L22-L38) 停用词表缺常见高频词，导致：
+  - `"今天吃什么饭"` 命中 3 条无关日记（因 "今天" 无区分度）
+  - `"你好"` 命中 3 条 score=1.0（满分！），实际上全是问候语
+  - 原表还存在 `"不是"` 重复
+- **修复**：扩充停用词 27 个——时间词（今天/昨天/明天/现在/目前/时间）、问候（你好/您好/谢谢/再见/好的/是的/对的）、对话标记（问题/回答/对话/记录/请问/答案）、通用动词连接词（进行/使用/通过/关于/对于/之后/之前/然后/觉得/认为/一下/这样/那样/这里/那里）。
+- **验证**：修复后"今天吃什么饭""你好""北京天气"均正确返回 0 条，"qlora 微调条件""python 包管理"仍正常命中。
+- **说明**：此修复在现有 2-gram 框架内改善精度，语义检索升级仍为 P2 远期项。
+
+### P3 load_config() 字符串路径兼容
+
+- **问题**：[config.py#load_config](file:///t:/zhixuzhe/engine/config.py#L211-L223) 类型签名为 `Path | None`，传 `str` 路径会因 `.exists()` 不存在而抛 `AttributeError`。生产代码只调用无参版本不受影响，但属 API 鲁棒性缺陷。
+- **修复**：类型签名改为 `Path | str | None`，函数入口加 `isinstance(path, str)` 转 Path 的逻辑。
+
+### 验证
+- 修复验证脚本 18/18 通过
+- 82/82 单元测试全绿，无回归
+
+---
+
 ## [2026-08-08] v1.2.9 问题排查 + 防编造加固
 
 ### 排查结论：6个问题的真实状态

@@ -23,10 +23,13 @@ class HardwareCheckSkill(Skill):
         "能微调吗", "能不能微调", "微调可行",
         "显存够不够", "显存够吗",
         "检查GPU", "GPU是否可用", "硬件诊断",
-        # 英文
+        # 英文（注意子串匹配对语序敏感，需覆盖自然表达的多种语序）
         "detect host", "check hardware", "hardware check",
-        "system info", "gpu check", "can i run qlora",
-        "hardware diagnostics",
+        "system info", "system information",
+        "gpu check", "check gpu", "verify gpu", "gpu available",
+        "gpu availability", "is gpu working", "check if gpu",
+        "can i run qlora", "hardware diagnostics",
+        "check my hardware", "hardware info",
     ]
 
     def plan(self, goal: str) -> list[str]:
