@@ -80,8 +80,10 @@ def split_lines(draw, text: str, font, max_width: int) -> list[str]:
     return lines
 
 
-def render_frame(background: np.ndarray, title: str, subtitle: str, font_path: str) -> np.ndarray:
-    """在渐变背景上绘制标题 + 当前句字幕，返回 RGB uint8 数组"""
+def render_frame(background: np.ndarray, title: str, subtitle: str, font_path: str, cta_url: str = "") -> np.ndarray:
+    """在渐变背景上绘制标题 + 当前句字幕，返回 RGB uint8 数组。
+    cta_url：可选，底部终端风格显示的 CTA 链接。
+    """
     from PIL import Image, ImageDraw, ImageFont
 
     img = Image.fromarray(background)
@@ -107,11 +109,28 @@ def render_frame(background: np.ndarray, title: str, subtitle: str, font_path: s
         draw.text(((W - lw) / 2, y), line, font=body_font, fill=(255, 255, 255))
         y += line_h
 
-    # 底部提示
-    foot_font = ImageFont.truetype(font_path, 36)
-    foot = "智序者 · 自进化开源智能体"
-    fw = draw.textlength(foot, font=foot_font)
-    draw.text(((W - fw) / 2, H - 200), foot, font=foot_font, fill=(160, 175, 200))
+    # 底部提示 / CTA URL
+    if cta_url:
+        term_font = ImageFont.truetype(font_path, 28)
+        prompt = "$ git clone "
+        pw = draw.textlength(prompt, font=term_font)
+        uw = draw.textlength(cta_url, font=term_font)
+        total_w = pw + uw
+        pad_x, pad_y = 28, 14
+        term_x = (W - total_w) // 2 - pad_x
+        term_y = H - 78 - pad_y
+        draw.rounded_rectangle(
+            [term_x, term_y, term_x + total_w + pad_x * 2, term_y + 28 + pad_y * 2],
+            radius=10, fill=(0, 0, 0, 180),
+        )
+        draw.rectangle([term_x, term_y, term_x + 3, term_y + 28 + pad_y * 2], fill=(94, 234, 212, 200))
+        draw.text((term_x + pad_x + 8, term_y + pad_y - 2), prompt, font=term_font, fill=(160, 175, 200))
+        draw.text((term_x + pad_x + 8 + pw, term_y + pad_y - 2), cta_url, font=term_font, fill=(94, 234, 212))
+    else:
+        foot_font = ImageFont.truetype(font_path, 36)
+        foot = "智序者 · 自进化开源智能体"
+        fw = draw.textlength(foot, font=foot_font)
+        draw.text(((W - fw) / 2, H - 200), foot, font=foot_font, fill=(160, 175, 200))
 
     return np.array(img)
 
@@ -208,15 +227,18 @@ def render_web_frame(
     font_path: str,
     page_label: str | None = None,
     progress: float = 0.0,
+    cta_url: str = "",
 ) -> np.ndarray:
     """全屏网页实景帧：网页铺满全屏 + 底部渐变暗化 + 描边字幕。
 
     progress: 0~1，片段内进度（用于 Ken Burns 缩放，本函数仅渲染单帧；
              动态缩放由外层 _make_kb_clip 通过 resize+position 实现）。
+    cta_url：可选，底部固定显示的 CTA 链接（终端/代码风格绿色字），
+             用于引导观众访问 GitHub 等地址。
     布局：
       - 底层：网页截图等比缩放覆盖全屏（清晰展示完整网页画面）
       - 中层：底部渐变暗化蒙版（保证字幕可读性，不遮挡主要网页内容）
-      - 顶层：品牌角标 + 页面标签 + 底部大字幕（描边）
+      - 顶层：品牌角标 + 页面标签 + 底部大字幕（描边）+ CTA URL
     """
     from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
@@ -294,10 +316,30 @@ def render_web_frame(
         _draw_text_with_stroke(draw, (lx, y), line, body_font, fill=(255, 255, 255), stroke_fill=(0, 0, 0), stroke_width=4)
         y += line_h
 
-    # 底部标语
-    foot = "开源 · 自进化 · 私有记忆"
-    fw = draw.textlength(foot, font=foot_font)
-    draw.text(((W - fw) / 2, H - 80), foot, font=foot_font, fill=(200, 210, 230))
+    # 底部标语 / CTA URL（终端风格代码字）
+    if cta_url:
+        # 终端命令条样式：深色圆角底 + $ 提示符 + 绿色 URL，智性代码感
+        term_font = ImageFont.truetype(font_path, 28)
+        prompt = "$ git clone "
+        url_text = cta_url
+        pw = draw.textlength(prompt, font=term_font)
+        uw = draw.textlength(url_text, font=term_font)
+        total_w = pw + uw
+        pad_x, pad_y = 28, 14
+        term_x = (W - total_w) // 2 - pad_x
+        term_y = H - 78 - pad_y
+        draw.rounded_rectangle(
+            [term_x, term_y, term_x + total_w + pad_x * 2, term_y + 28 + pad_y * 2],
+            radius=10, fill=(0, 0, 0, 180),
+        )
+        # 左侧细绿边（终端光标感）
+        draw.rectangle([term_x, term_y, term_x + 3, term_y + 28 + pad_y * 2], fill=(94, 234, 212, 200))
+        draw.text((term_x + pad_x + 8, term_y + pad_y - 2), prompt, font=term_font, fill=(160, 175, 200))
+        draw.text((term_x + pad_x + 8 + pw, term_y + pad_y - 2), url_text, font=term_font, fill=(94, 234, 212))
+    else:
+        foot = "开源 · 自进化 · 私有记忆"
+        fw = draw.textlength(foot, font=foot_font)
+        draw.text(((W - fw) / 2, H - 80), foot, font=foot_font, fill=(200, 210, 230))
 
     return np.array(canvas.convert("RGB"))
 
@@ -579,6 +621,7 @@ def make_douyin_video(
     prompt_wav: str | None = None,
     shots_dir: str | None = None,
     short: bool = False,
+    cta_url: str = "",
 ) -> str:
     """制作抖音竖屏短视频，返回报告。供 Tool 调用。
 
@@ -587,6 +630,7 @@ def make_douyin_video(
     prompt_wav：CosyVoice 克隆底音参考音频（内置名 zero/cross 或自定义 wav 路径）。
     shots_dir：智序者网页截图目录（默认 .runtime/shots/，存在截图时画面用网页实景）。
     short：True 时使用稍快语速 + 电影感 Ken Burns 动效（约 20 秒快节奏）。
+    cta_url：可选，底部终端风格显示的 CTA 链接（如 GitHub 地址），智性代码感。
     """
     if not text or not text.strip():
         raise ValueError(
@@ -660,9 +704,9 @@ def make_douyin_video(
     for i, (sent, mp3, duration) in enumerate(segments):
         if web_shots:
             page = _pick_web_shot(sent, web_shots, None, i)
-            frame = render_web_frame(background, web_shots[page], title, sent, font_path, page_label=page)
+            frame = render_web_frame(background, web_shots[page], title, sent, font_path, page_label=page, cta_url=cta_url)
         else:
-            frame = render_frame(background, title, sent, font_path)
+            frame = render_frame(background, title, sent, font_path, cta_url=cta_url)
 
         if short:
             # 电影感：Ken Burns 缓慢放大 + 轻微上移
@@ -733,11 +777,12 @@ def main() -> None:
     parser.add_argument("--prompt-wav", default="", help="CosyVoice 克隆底音：内置 zero/cross，或自定义参考音频 wav 路径")
     parser.add_argument("--shots-dir", default="", help="智序者网页截图目录（默认 .runtime/shots/ + assets/images/截图/）")
     parser.add_argument("--short", action="store_true", help="短模式：稍快语速 + Ken Burns 电影感动效 + crossfade 过渡（文案由 --text 提供）")
+    parser.add_argument("--cta-url", default="", help="可选，底部终端风格显示的 CTA 链接（如 GitHub 地址）")
     args = parser.parse_args()
 
     print(make_douyin_video(
         args.text, args.out, args.voice, args.prompt_wav or None,
-        args.shots_dir or None, short=args.short,
+        args.shots_dir or None, short=args.short, cta_url=args.cta_url or "",
     ))
 
 

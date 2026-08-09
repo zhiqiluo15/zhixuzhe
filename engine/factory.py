@@ -37,10 +37,10 @@ def create_agent(project_root: Path) -> Agent:
     from engine.tools.detect_host import detect_host
     from engine.tools.verify_gpu import verify_gpu
 
-    def _make_video(text: str = "", voice: str = "zh-CN-XiaoxiaoNeural") -> str:
+    def _make_video(text: str = "", voice: str = "zh-CN-XiaoxiaoNeural", cta_url: str = "") -> str:
         """懒导入 video_maker（依赖 edge-tts/moviepy/Pillow，避免拖慢 Agent 启动）"""
         from engine.tools.video_maker import make_douyin_video
-        return make_douyin_video(text=text, voice=voice)
+        return make_douyin_video(text=text, voice=voice, short=True, cta_url=cta_url)
 
     def classify_images(inbox: str = "", dry_run: bool = False) -> str:
         """懒导入 image_librarian（依赖 torch/open_clip，避免拖慢 Agent 启动）"""
@@ -59,12 +59,13 @@ def create_agent(project_root: Path) -> Agent:
     tools.register(Tool(
         name="make_video",
         description=(
-            "制作抖音竖屏短视频：将口播文案切句，合成中文配音，渲染画面并合成 MP4（1080x1920）。"
+            "制作抖音竖屏短视频：将口播文案切句，合成中文配音，渲染全屏网页画面"
+            "并合成 MP4（1080x1920，Ken Burns 动效+crossfade）。"
             "【重要】text 为口播文案，必填，无内置默认文案——必须根据用户意图先构思生成再传入："
             "hook 开场（3 秒内抓注意力）→ 卖点展开（产品亮点/差异化）→ CTA 收尾；"
-            "短句口语化、每句 15~30 字、总长 20~50 秒；voice 为音色："
-            "本地 CosyVoice 克隆用 cosyvoice:晓伊（默认，免费好音色）；"
-            "edge-tts 音色如 zh-CN-XiaoxiaoNeural。"
+            "短句口语化、每句 15~30 字、总长 15~25 秒（短模式，快节奏）；"
+            "voice 默认 cosyvoice:晓伊（本地克隆免费好音色），也可用 edge-tts 如 zh-CN-XiaoxiaoNeural；"
+            "cta_url 可选，底部以终端代码风格显示（如 GitHub 地址），引导观众访问。"
         ),
         func=_make_video,
         parameters={
@@ -72,11 +73,15 @@ def create_agent(project_root: Path) -> Agent:
             "properties": {
                 "text": {
                     "type": "string",
-                    "description": "口播文案（必填，无内置默认）。先按 hook→卖点→CTA 构思生成后传入",
+                    "description": "口播文案（必填，无内置默认）。先按 hook→卖点→CTA 构思生成后传入，15~25秒",
                 },
                 "voice": {
                     "type": "string",
-                    "description": "edge-tts 音色，如 zh-CN-XiaoxiaoNeural（默认）/zh-CN-YunxiNeural；或 cosyvoice:晓伊 本地克隆",
+                    "description": "音色：cosyvoice:晓伊（默认，本地克隆免费）/zh-CN-XiaoxiaoNeural 等",
+                },
+                "cta_url": {
+                    "type": "string",
+                    "description": "可选，底部终端风格显示的 CTA 链接（如 GitHub 地址 https://github.com/...）",
                 },
             },
         },

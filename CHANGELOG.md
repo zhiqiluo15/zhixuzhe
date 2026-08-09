@@ -21,6 +21,35 @@
 
 ---
 
+## [2026-08-09] v1.3.6 新增 cta_url：终端风格底部 CTA 链接 + Agent 默认短模式
+
+### 需求背景
+
+用户制作智序者宣传视频时，要求在视频中固定显示 GitHub 地址，方便观众访问。
+之前的视频制作工具只在画面底部写死"开源 · 自进化 · 私有记忆"标语，无法定制。
+顺便将 Agent 工具调用默认改为 short 模式（抖音主流快节奏），并补充 cta_url 参数。
+
+### 修改
+
+1. **render_web_frame / render_frame 新增 cta_url 参数**：底部可显示终端/代码风格的 CTA 链接
+   - 样式：深色半透明圆角矩形底 + 左侧青绿色细边（终端光标感）+ `$ git clone ` 灰色提示符 + URL 青绿色高亮
+   - 无 cta_url 时回退原有的底部标语，向后兼容
+2. **make_douyin_video 新增 cta_url 参数**：逐层透传到底层帧渲染函数
+3. **CLI 新增 --cta-url 参数**：命令行可直接传入（如 `--cta-url github.com/zhiqiluo15/zhixuzhe`）
+4. **factory.py make_video Agent 工具**：
+   - 新增 `cta_url` 参数（描述为"底部终端风格显示的 CTA 链接"）
+   - 默认调用 `short=True`（15~25 秒快节奏，更符合抖音主流风格）
+   - 更新参数描述，引导 Agent 在需要引流时传入 GitHub/落地页等地址
+
+### 验证
+
+- 105/105 单元测试全部通过
+- 实测生成 zhixuzhe_promo_intellectual.mp4（21.4s，1.7MB，1080×1920）：
+  9 张截图全屏铺满 + Ken Burns 运镜 + 底部 `$ git clone github.com/zhiqiluo15/zhixuzhe` CTA 正常显示
+- 无 cta_url 时原底部标语仍正常显示，向后兼容
+
+---
+
 ## [2026-08-09] v1.3.5 宣传文案去硬编码：Agent 动态生成
 
 ### 需求背景
