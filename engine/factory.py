@@ -36,6 +36,12 @@ def create_agent(project_root: Path) -> Agent:
     from engine.tools.registry import ToolRegistry, Tool
     from engine.tools.detect_host import detect_host
     from engine.tools.verify_gpu import verify_gpu
+
+    def _make_video(text: str = "", voice: str = "zh-CN-XiaoxiaoNeural") -> str:
+        """懒导入 video_maker（依赖 edge-tts/moviepy/Pillow，避免拖慢 Agent 启动）"""
+        from engine.tools.video_maker import make_douyin_video
+        return make_douyin_video(text=text, voice=voice)
+
     from engine.tools.shell import run_shell
     from engine.tools.file_io import read_file, write_file
     from engine.tools.web_fetch import web_fetch
@@ -45,6 +51,28 @@ def create_agent(project_root: Path) -> Agent:
     from engine.tools.file_manage import list_files, batch_files
 
     tools = ToolRegistry()
+    tools.register(Tool(
+        name="make_video",
+        description=(
+            "制作抖音竖屏短视频：将口播文案切句，用 edge-tts 合成中文配音，"
+            "渲染渐变字幕背景并合成 MP4（1080x1920）。"
+            "参数 text 为口播文案（留空用内置智序者宣传文案），voice 为音色。"
+        ),
+        func=_make_video,
+        parameters={
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "口播文案，留空则用内置智序者宣传文案",
+                },
+                "voice": {
+                    "type": "string",
+                    "description": "edge-tts 音色，如 zh-CN-XiaoxiaoNeural（默认）/zh-CN-YunxiNeural",
+                },
+            },
+        },
+    ))
     tools.register(Tool(
         name="detect_host",
         description="检测宿主机信息：操作系统、CPU、内存、磁盘、Python 版本、GPU、CUDA、PyTorch",

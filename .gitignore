@@ -3,6 +3,9 @@
 memory/
 logs/
 
+# 抖音视频制作产物
+videos/
+
 # Trae IDE 内部文档（本地私有，不进公共仓库）
 .trae/
 

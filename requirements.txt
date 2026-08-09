@@ -7,3 +7,10 @@ numpy>=1.24.0
 # 可选：GPU 算力验证（无 GPU 可跳过，不影响核心功能）
 #   pip install torch --index-url https://download.pytorch.org/whl/cu128
 #   （RTX 50 系 / CUDA 12.x 请用 cu128 源；其他显卡见 https://pytorch.org）
+
+# 可选：抖音视频制作工具（make_video，无此依赖时该工具懒加载报错，不影响核心功能）
+#   edge-tts 云端配音需能访问 speech.platform.bing.com；不通时自动回退本地 SAPI5
+edge-tts>=6.1.0
+moviepy>=2.0.0
+Pillow>=10.0.0
+pyttsx3>=2.90

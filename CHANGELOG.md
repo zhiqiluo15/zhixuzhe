@@ -19,6 +19,39 @@
 
 ---
 
+## [2026-08-09] v1.2.15 抖音竖屏视频制作工具（make_video）
+
+### 需求背景
+
+用户询问 Trae 能否制作抖音视频并自动发布。调研结论（见 v1.2.15 决策记录）：
+抖音官方发布 API 已对个人开发者关闭（2025-02 下线 video.create），自动发布只有浏览器自动化
+（封号红线）或官方定时发布两条路。用户最终选择「制作自动化 + 发布手动」的零风险方案。
+
+### 新增
+
+- 新增工具 [video_maker.py](file:///t:/zhixuzhe/engine/tools/video_maker.py)（注册为第 12 个工具 make_video）：
+  - 文案切句（中英文句末标点）→ 逐句 TTS 配音 → PIL 渲染 1080x1920 渐变字幕背景 → moviepy 合成 MP4
+  - **双 TTS 引擎**：edge-tts 优先（支持代理），失败自动回退 Windows 本地 SAPI5（pyttsx3，零网络依赖）
+  - 内置智序者宣传文案（约 50 秒口播），也可传自定义 text/voice
+  - 懒加载：重依赖（moviepy/PIL/edge-tts）仅调用时导入，不影响 Agent 启动
+- requirements.txt 补充可选依赖组（edge-tts/moviepy/Pillow/pyttsx3），注明不影响核心功能
+- .gitignore 新增 `videos/`（视频产物不入库）
+
+### 踩坑（重要）
+
+1. **edge-tts 在国内直连 speech.platform.bing.com 被墙**（WinError 64 网络名不可用）→
+   设计双引擎回退，SAPI5 兜底零网络可用
+2. **新版 moviepy 的 write_videofile 不接受 verbose 参数**（v2.x 移除）→ 移除
+3. **SAPI5 回退后路径不一致 bug**：本地引擎生成 .wav，但主流程仍读 .mp3 → 让 tts_one 返回实际文件路径
+
+### 验证
+
+- 实跑生成样片：`videos/douyin_20260809_144611.mp4`（50.8s / 1080x1920 / H.264+AAC / 1.3MB）
+- ffprobe 校验：视频流 h264 1080x1920，音频流 aac 44.1kHz，时长 50.77s，符合抖音上传要求
+- 全程自动回退 SAPI5 成功（edge-tts 不可达），视频合成正常
+
+---
+
 ## [2026-08-08] v1.2.14 开源准备：敏感信息审计 + 仓库清理 + 可移植性补齐
 
 ### 背景
