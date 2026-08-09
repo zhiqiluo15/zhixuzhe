@@ -38,9 +38,10 @@ export DEEPSEEK_API_KEY='你的key'    # Linux/macOS
 ### 2. 启动 Agent
 
 ```bash
-# 安装依赖
-python -m pip install requests psutil numpy
-# GPU 验证需要 CUDA 版 PyTorch（RTX 50 系请用 cu128 源）
+# 安装核心依赖
+python -m pip install -r requirements.txt
+
+# 可选：GPU 算力验证需要 CUDA 版 PyTorch（RTX 50 系请用 cu128 源）
 python -m pip install torch --index-url https://download.pytorch.org/whl/cu128
 
 # 启动交互式 Agent

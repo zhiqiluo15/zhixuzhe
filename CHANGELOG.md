@@ -19,6 +19,36 @@
 
 ---
 
+## [2026-08-08] v1.2.14 开源准备：敏感信息审计 + 仓库清理 + 可移植性补齐
+
+### 背景
+
+用户准备将智序者开源分享（目标用户：Windows）。开源前做全量敏感信息审计与仓库清理。
+**审计结论**：真实 API Key、灵魂层 memory/、.env 均从未进入 git 历史（历史中只有假占位符密钥），
+git 历史无需重写（无需 filter-repo）。
+
+### 仓库清理（本地文件全部保留）
+
+- `.gitignore` 补充：`logs/`（运行时日志）、`.trae/`（Trae IDE 内部文档）、`.pytest_cache/`
+- `git rm --cached` 移除跟踪（磁盘保留）：`logs/agent.log`、`.trae/documents/fix-all-11-issues.md`、`_test_agent_real.py`
+  - `_test_agent_real.py` 为临时验证脚本且运行时会覆写 .env，删除以拆隐患
+
+### 可移植性补齐（面向 Windows 用户）
+
+- 新增 [LICENSE](file:///t:/zhixuzhe/LICENSE)（MIT，与 README 声明一致，版权 2026 罗智奇）
+- 新增 [requirements.txt](file:///t:/zhixuzhe/requirements.txt)：核心依赖 requests/psutil/numpy + torch 可选（cu128 说明），
+  修复"无依赖清单、新手手抄易漏"的问题
+- 修复 [web_server.py](file:///t:/zhixuzhe/engine/web_server.py#L708) 硬编码 `T:\zhixuzhe\.env`：
+  `/setup` 写入失败的提示改为动态 `{ROOT / '.env'}`，避免他人 clone 后看到错误绝对路径
+
+### 验证
+
+- 全部单元测试通过（105/105）
+- `git status` 审计：仅预期的清理变更，无敏感文件进入索引
+- 本地体验零影响：logs/、.trae/、.env、memory/ 磁盘文件全部保留
+
+---
+
 ## [2026-08-08] v1.2.13 工作文件 Web 可视化：记忆回顾页 + 基因层页
 
 ### 需求背景

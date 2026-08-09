@@ -706,7 +706,7 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
                 "无法写入 .env 文件（已被其他程序占用或安全软件拦截）。请排查："
                 "①关闭打开 .env 的程序（记事本/VS Code/资源管理器选中预览）；"
                 "②若仍失败，检查 Windows 安全中心的『受控文件夹访问』是否拦截了对 "
-                "T:\\zhixuzhe\\.env 的写入。完成后请重试。")
+                f"{ROOT / '.env'} 的写入。完成后请重试。")
             return
         except Exception as e:
             logger.error(f"/setup 处理失败（{type(e).__name__}）: {e}")

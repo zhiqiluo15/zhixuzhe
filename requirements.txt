@@ -1,0 +1,9 @@
+# 智序者核心依赖（面向 Windows 用户）
+# Python 3.10+（开发环境为 3.14）
+requests>=2.28.0
+psutil>=5.9.0
+numpy>=1.24.0
+
+# 可选：GPU 算力验证（无 GPU 可跳过，不影响核心功能）
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+#   （RTX 50 系 / CUDA 12.x 请用 cu128 源；其他显卡见 https://pytorch.org）

@@ -1,11 +1,16 @@
 # 灵魂层（私有记忆）—— 永不进入公共仓库
 # 智序者的记忆、身体档案、私人经历属于每个宿主自己
 memory/
+logs/
+
+# Trae IDE 内部文档（本地私有，不进公共仓库）
+.trae/
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
 .env
 .venv/
 venv/
