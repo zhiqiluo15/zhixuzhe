@@ -10,14 +10,13 @@
                                自动拉起本地服务，失败回退 SAPI5）
 
 用法：
-  python engine/tools/video_maker.py                      # 内置智序者宣传文案
-  python engine/tools/video_maker.py --text "自定义文案"
-  python engine/tools/video_maker.py --voice zh-CN-YunxiNeural --out videos/out.mp4
-  python engine/tools/video_maker.py --voice cosyvoice:中文女声 --out videos/out.mp4
-  python engine/tools/video_maker.py --voice cosyvoice:中文女声 --prompt-wav cross --out videos/out.mp4
+  python engine/tools/video_maker.py --text "口播文案（必填）"
+  python engine/tools/video_maker.py --text "文案" --voice zh-CN-YunxiNeural --out videos/out.mp4
+  python engine/tools/video_maker.py --text "文案" --voice cosyvoice:中文女声 --out videos/out.mp4
+  python engine/tools/video_maker.py --text "文案" --voice cosyvoice:中文女声 --prompt-wav cross --out videos/out.mp4
 
 API：
-  make_douyin_video(text, out_path, voice) -> str        # 返回报告，供 Tool 调用
+  make_douyin_video(text, out_path, voice) -> str        # 返回报告，供 Tool 调用（text 必填）
 
 依赖（venv）：
   .venv\\Scripts\\python.exe -m pip install edge-tts moviepy Pillow
@@ -45,30 +44,6 @@ logger = get_logger(__name__)
 # 竖屏规格
 W, H = 1080, 1920
 FPS = 30
-
-# 默认内置文案：宣传智序者（约 45 秒口播）
-DEFAULT_TEXT = (
-    "你知道为什么 AI 越来越聪明，却总记不住你是谁吗？"
-    "我是智序者，一个会自己成长的开源智能体。"
-    "每天，我把每一次对话、每一次任务、每一次踩坑，都写进自己的记忆。"
-    "我还会在深夜回顾这些经验，让自己变得更好。"
-    "这就像人类一样，智慧，来自于秩序。"
-    "我的基因是开源的，任何人都能查看我的进化记录；"
-    "但我的灵魂是私有的，只有你能看到我的记忆。"
-    "我用现在的云端模型积累经验，等本地模型成熟那天，"
-    "这些经验会全部带回你的电脑。"
-    "现在，你也可以拥有一个会成长的 AI。开源地址，就在简介里。"
-)
-
-# 短视频文案（约 20 秒，抖音主流快节奏，hook→卖点→CTA）
-SHORT_TEXT = (
-    "AI 越来越聪明，却记不住你是谁？"
-    "我是智序者，会自己成长的开源智能体。"
-    "每一次对话、踩坑，都写进我的记忆。"
-    "白天干活，深夜反思，越用越懂你。"
-    "基因全开源，灵魂只属于你。"
-    "GitHub 搜「智序者」，拥有会成长的 AI。"
-)
 
 
 def split_sentences(text: str) -> list[str]:
@@ -598,7 +573,7 @@ def _make_kb_clip(frame_arr: np.ndarray, duration: float) -> "VideoClip":
 
 
 def make_douyin_video(
-    text: str = DEFAULT_TEXT,
+    text: str = "",
     out_path: str = "",
     voice: str = "zh-CN-XiaoxiaoNeural",
     prompt_wav: str | None = None,
@@ -607,10 +582,18 @@ def make_douyin_video(
 ) -> str:
     """制作抖音竖屏短视频，返回报告。供 Tool 调用。
 
+    text：口播文案，**必填**——由调用方（Agent）根据用户意图动态构思生成，
+         不内置默认文案。空文本直接报错。
     prompt_wav：CosyVoice 克隆底音参考音频（内置名 zero/cross 或自定义 wav 路径）。
     shots_dir：智序者网页截图目录（默认 .runtime/shots/，存在截图时画面用网页实景）。
-    short：True 时使用内置短文案（SHORT_TEXT，约 20 秒快节奏）+ 电影感 Ken Burns 动效。
+    short：True 时使用稍快语速 + 电影感 Ken Burns 动效（约 20 秒快节奏）。
     """
+    if not text or not text.strip():
+        raise ValueError(
+            "未提供口播文案（text）。请先根据用户意图构思口播文案："
+            "hook 开场（3 秒内抓住注意力）→ 卖点 → CTA 收尾，短句口语化，"
+            "再传入 text 制作视频。"
+        )
     from moviepy import (
         AudioFileClip,
         CompositeVideoClip,
@@ -625,9 +608,7 @@ def make_douyin_video(
     videos_dir = root / "videos"
     videos_dir.mkdir(exist_ok=True)
 
-    # short 模式：短文案 + 稍快语速，更有宣传感
-    if short and text == DEFAULT_TEXT:
-        text = SHORT_TEXT
+    # short 模式：稍快语速 + 电影感 Ken Burns 动效（文案由调用方提供）
     tts_speed = 1.08 if short else 1.05
 
     if not out_path:
@@ -746,17 +727,16 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="智序者 · 抖音竖屏视频制作")
-    parser.add_argument("--text", default=None, help="口播文案（缺省用内置宣传文案；--short 时用短文案）")
+    parser.add_argument("--text", required=True, help="口播文案（必填，由调用方构思生成；不内置默认文案）")
     parser.add_argument("--voice", default="cosyvoice:晓伊", help="音色：cosyvoice:晓伊/zero（本地克隆，默认）；edge-tts 如 zh-CN-XiaoxiaoNeural")
     parser.add_argument("--out", default="", help="输出路径（缺省 videos/douyin_时间戳.mp4 或 short_时间戳.mp4）")
     parser.add_argument("--prompt-wav", default="", help="CosyVoice 克隆底音：内置 zero/cross，或自定义参考音频 wav 路径")
     parser.add_argument("--shots-dir", default="", help="智序者网页截图目录（默认 .runtime/shots/ + assets/images/截图/）")
-    parser.add_argument("--short", action="store_true", help="短模式：使用 20s 快节奏文案 + Ken Burns 电影感动效 + crossfade 过渡")
+    parser.add_argument("--short", action="store_true", help="短模式：稍快语速 + Ken Burns 电影感动效 + crossfade 过渡（文案由 --text 提供）")
     args = parser.parse_args()
 
-    text = args.text if args.text else (SHORT_TEXT if args.short else DEFAULT_TEXT)
     print(make_douyin_video(
-        text, args.out, args.voice, args.prompt_wav or None,
+        args.text, args.out, args.voice, args.prompt_wav or None,
         args.shots_dir or None, short=args.short,
     ))
 

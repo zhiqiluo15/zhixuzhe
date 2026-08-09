@@ -59,10 +59,12 @@ def create_agent(project_root: Path) -> Agent:
     tools.register(Tool(
         name="make_video",
         description=(
-            "制作抖音竖屏短视频：将口播文案切句，合成中文配音，"
-            "渲染渐变字幕背景并合成 MP4（1080x1920）。"
-            "参数 text 为口播文案（留空用内置智序者宣传文案），voice 为音色："
-            "edge-tts 音色如 zh-CN-XiaoxiaoNeural；本地 CosyVoice 克隆用 cosyvoice:中文女声。"
+            "制作抖音竖屏短视频：将口播文案切句，合成中文配音，渲染画面并合成 MP4（1080x1920）。"
+            "【重要】text 为口播文案，必填，无内置默认文案——必须根据用户意图先构思生成再传入："
+            "hook 开场（3 秒内抓注意力）→ 卖点展开（产品亮点/差异化）→ CTA 收尾；"
+            "短句口语化、每句 15~30 字、总长 20~50 秒；voice 为音色："
+            "本地 CosyVoice 克隆用 cosyvoice:晓伊（默认，免费好音色）；"
+            "edge-tts 音色如 zh-CN-XiaoxiaoNeural。"
         ),
         func=_make_video,
         parameters={
@@ -70,11 +72,11 @@ def create_agent(project_root: Path) -> Agent:
             "properties": {
                 "text": {
                     "type": "string",
-                    "description": "口播文案，留空则用内置智序者宣传文案",
+                    "description": "口播文案（必填，无内置默认）。先按 hook→卖点→CTA 构思生成后传入",
                 },
                 "voice": {
                     "type": "string",
-                    "description": "edge-tts 音色，如 zh-CN-XiaoxiaoNeural（默认）/zh-CN-YunxiNeural",
+                    "description": "edge-tts 音色，如 zh-CN-XiaoxiaoNeural（默认）/zh-CN-YunxiNeural；或 cosyvoice:晓伊 本地克隆",
                 },
             },
         },

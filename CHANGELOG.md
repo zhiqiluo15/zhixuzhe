@@ -21,6 +21,38 @@
 
 ---
 
+## [2026-08-09] v1.3.5 宣传文案去硬编码：Agent 动态生成
+
+### 需求背景
+
+用户反馈视频文案硬编码在代码里。调研后确认：`make_douyin_video()` 虽已支持传参，
+但默认文案（`DEFAULT_TEXT`/`SHORT_TEXT`）仍写死在 [video_maker.py](file:///t:/zhixuzhe/engine/tools/video_maker.py) 中。
+用户选定方案：**Agent 动态生成**——默认不再内置文案，每次制作视频时由 Agent 根据用户意图构思文案。
+
+### 修改
+
+1. **删除内置文案**：移除 `DEFAULT_TEXT`/`SHORT_TEXT` 两个硬编码常量（含旧 45s/20s 两套文案）
+2. **text 必填**：[make_douyin_video()](file:///t:/zhixuzhe/engine/tools/video_maker.py#L576-L597) 空文案直接 `raise ValueError`，
+   并附文案创作提示（hook→卖点→CTA、短句口语化）——调用方必须提供文案
+3. **CLI 同步**：`--text` 改为 `required=True`，去掉 `--short` 自动套用短文案的逻辑
+   （short 仅保留语速/动效语义，文案统一由 `--text` 提供）
+4. **Agent 引导**：[factory.py](file:///t:/zhixuzhe/engine/factory.py#L59-L83) make_video 工具描述重写——
+   明确 text 必填、无内置默认，并给出文案创作方法论（hook→卖点→CTA、每句 15~30 字、总长 20~50 秒、
+   本地音色推荐 cosyvoice:晓伊），引导 Agent 每次先构思再调用
+
+### 理由
+
+- 文案是内容创作的核心，硬编码等于把创作权交给代码而非 AI；动态生成让每次视频贴合用户当次意图
+- 保留方法论提示而非固定文案：提示词是"如何写好文案"的规范，不违反去硬编码原则
+
+### 验证
+
+- 105/105 单元测试全部通过
+- 空文案调用正确抛错（提示先构思文案）
+- 无残留 `DEFAULT_TEXT`/`SHORT_TEXT` 代码引用（仅 CHANGELOG 历史记录提及）
+
+---
+
 ## [2026-08-09] v1.3.4 视频画面铺满全屏（信息完整展示）
 
 ### 问题反馈
