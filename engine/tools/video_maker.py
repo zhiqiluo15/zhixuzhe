@@ -131,6 +131,137 @@ def render_frame(background: np.ndarray, title: str, subtitle: str, font_path: s
     return np.array(img)
 
 
+def _load_web_shots(shots_dir: Path | None) -> dict[str, np.ndarray]:
+    """加载智序者网页截图（.runtime/shots/hd_*.png 优先，回退 *_? .png）。
+
+    返回 {页面名: RGB 数组}，页面名取文件前缀（home/memory/genome/knowledge）。
+    没有可用截图时返回空 dict（此时退回纯渐变背景渲染）。
+    """
+    if shots_dir is None:
+        shots_dir = ROOT / ".runtime" / "shots"
+    shots: dict[str, np.ndarray] = {}
+    if not shots_dir.exists():
+        return shots
+    # 只认智序者已知页面名，避免目录下其它 png（如预览帧）误入
+    allowed = {"home", "memory", "genome", "knowledge"}
+    # hd_ 高清截图优先，普通截图兜底（同名只取高清）
+    hd_files = sorted(shots_dir.glob("hd_*.png"))
+    plain_files = sorted(shots_dir.glob("*.png"))
+    for f in hd_files + plain_files:
+        name = f.stem
+        if name.startswith("hd_"):
+            name = name[3:]
+        if name not in allowed or name in shots:
+            continue
+        try:
+            from PIL import Image
+
+            with Image.open(f) as im:
+                shots[name] = np.array(im.convert("RGB"))
+        except Exception as exc:
+            logger.warning(f"  网页截图加载失败 {f.name}: {exc}")
+    return shots
+
+
+def _pick_web_shot(
+    sentence: str, shots: dict[str, np.ndarray], page_hint: str | None, idx: int
+) -> str | None:
+    """按句子语义 + 页面 hint 挑选展示的页面名。
+
+    规则：调用方可传 page_hint（优先使用）；否则按关键词匹配；
+    都未命中时按 idx 轮换。无截图返回 None。
+    """
+    if not shots:
+        return None
+    if page_hint and page_hint in shots:
+        return page_hint
+    keywords = {
+        "knowledge": ("知识", "学习", "云端", "模型", "电脑"),
+        "genome": ("基因", "进化", "开源", "查看", "公开"),
+        "memory": ("记忆", "记住", "记不住", "忘", "回顾", "经验", "私有", "灵魂"),
+        "home": ("你好", "开始", "成长", "拥有", "欢迎"),
+    }
+    for name, words in keywords.items():
+        if name not in shots:
+            continue
+        if any(w in sentence for w in words):
+            return name
+    return list(shots.keys())[idx % len(shots)]
+
+
+def render_web_frame(
+    background: np.ndarray,
+    web_img: np.ndarray,
+    title: str,
+    subtitle: str,
+    font_path: str,
+    page_label: str | None = None,
+) -> np.ndarray:
+    """把智序者网页截图嵌入渐变背景，下方叠加当前句字幕。
+
+    布局（1080x1920 竖屏）：
+      顶部小标题 → 网页画面卡片（上方 60%）→ 当前句字幕（下方 30%）
+    网页截图按比例缩放铺满卡片区域，模拟"手机/浏览器窗口"观感。
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.fromarray(background)
+    draw = ImageDraw.Draw(img)
+
+    title_font = ImageFont.truetype(font_path, 48)
+    body_font = ImageFont.truetype(font_path, 56)
+    foot_font = ImageFont.truetype(font_path, 34)
+
+    # 顶部小标题
+    title_w = draw.textlength(title, font=title_font)
+    draw.text(((W - title_w) / 2, 110), title, font=title_font, fill=(255, 255, 255))
+
+    # 网页画面卡片（上方区域，宽 1080 铺满，高约 1000）
+    card_w, card_h = W, 1020
+    card_x, card_y = 0, 210
+    web_pil = Image.fromarray(web_img)
+    scale = min(card_w / web_pil.width, card_h / web_pil.height)
+    nw, nh = int(web_pil.width * scale), int(web_pil.height * scale)
+    web_pil = web_pil.resize((nw, nh), Image.LANCZOS)
+    # 居中裁剪填满卡片
+    left = (nw - card_w) // 2
+    top = (nh - card_h) // 2
+    web_pil = web_pil.crop((left, top, left + card_w, top + card_h))
+    # 圆角遮罩
+    mask = Image.new("L", (card_w, card_h), 0)
+    mask_draw = ImageDraw.Draw(mask)
+    mask_draw.rounded_rectangle([0, 0, card_w - 1, card_h - 1], radius=24, fill=255)
+    # 轻微提亮网页画面 + 很淡的深色蒙版（保证白色字幕可读）
+    web_pil = web_pil.point(lambda v: min(255, int(v * 1.15)))
+    overlay = Image.new("RGBA", (card_w, card_h), (3, 3, 13, 30))
+    web_rgba = web_pil.convert("RGBA")
+    web_rgba = Image.alpha_composite(web_rgba, overlay)
+    img.paste(web_rgba, (card_x, card_y), mask)
+
+    # 页面标签（卡片右上角）
+    if page_label:
+        label = f" · {page_label}"
+        lw = draw.textlength(label, font=foot_font)
+        draw.text((W - lw - 24, card_y + 16), label, font=foot_font, fill=(150, 165, 195))
+
+    # 下方字幕区（自动换行，最多 4 行）
+    lines = split_lines(draw, subtitle, body_font, W - 140)[:4]
+    line_h = 84
+    total_h = len(lines) * line_h
+    y = card_y + card_h + (H - card_y - card_h - 240 - total_h) // 2
+    for line in lines:
+        lw = draw.textlength(line, font=body_font)
+        draw.text(((W - lw) / 2, y), line, font=body_font, fill=(255, 255, 255))
+        y += line_h
+
+    # 底部提示
+    foot = "智序者 · 自进化开源智能体"
+    fw = draw.textlength(foot, font=foot_font)
+    draw.text(((W - fw) / 2, H - 150), foot, font=foot_font, fill=(150, 165, 195))
+
+    return np.array(img)
+
+
 def make_gradient_bg() -> np.ndarray:
     """生成深蓝渐变背景 (H, W, 3) uint8"""
     top = np.array([18, 20, 46], dtype=np.float64)     # #12142E
@@ -358,10 +489,12 @@ def make_douyin_video(
     out_path: str = "",
     voice: str = "zh-CN-XiaoxiaoNeural",
     prompt_wav: str | None = None,
+    shots_dir: str | None = None,
 ) -> str:
     """制作抖音竖屏短视频，返回报告。供 Tool 调用。
 
     prompt_wav：CosyVoice 克隆底音参考音频（内置名 zero/cross 或自定义 wav 路径）。
+    shots_dir：智序者网页截图目录（默认 .runtime/shots/，存在截图时画面用网页实景）。
     """
     from moviepy import AudioFileClip, ImageClip, concatenate_audioclips, concatenate_videoclips
 
@@ -388,16 +521,25 @@ def make_douyin_video(
     segments, engines = asyncio.run(_synthesize_async(sentences, voice, workdir, prompt_wav))
     lines.append(f"配音完成，耗时 {time.perf_counter() - t0:.1f}s，引擎: {', '.join(sorted(engines))}")
 
-    # 2. 生成渐变背景 + 逐句字幕帧
+    # 2. 渲染背景帧（有网页截图 → 网页实景卡片；否则渐变背景）+ 逐句字幕
     lines.append("── 字幕渲染 + 视频合成（moviepy）──────")
     t0 = time.perf_counter()
     font_path = find_cjk_font()
     background = make_gradient_bg()
     title = "智序者 · 自进化开源智能体"
+    web_shots = _load_web_shots(Path(shots_dir) if shots_dir else None)
+    if web_shots:
+        lines.append(f"网页实景画面: {', '.join(sorted(web_shots))}")
+    else:
+        lines.append("未找到网页截图，使用渐变背景")
 
     clips, audios = [], []
-    for sent, mp3, duration in segments:
-        frame = render_frame(background, title, sent, font_path)
+    for i, (sent, mp3, duration) in enumerate(segments):
+        if web_shots:
+            page = _pick_web_shot(sent, web_shots, None, i)
+            frame = render_web_frame(background, web_shots[page], title, sent, font_path, page_label=page)
+        else:
+            frame = render_frame(background, title, sent, font_path)
         clip = ImageClip(frame).with_duration(duration).with_fps(FPS)
         audio = AudioFileClip(str(mp3))
         clip = clip.with_audio(audio)
@@ -456,9 +598,10 @@ def main() -> None:
     parser.add_argument("--voice", default="zh-CN-XiaoxiaoNeural", help="音色：edge-tts 如 zh-CN-YunxiNeural；本地克隆用 cosyvoice:中文女声")
     parser.add_argument("--out", default="", help="输出路径（缺省 videos/douyin_时间戳.mp4）")
     parser.add_argument("--prompt-wav", default="", help="CosyVoice 克隆底音：内置 zero/cross，或自定义参考音频 wav 路径")
+    parser.add_argument("--shots-dir", default="", help="智序者网页截图目录（默认 .runtime/shots/，存在截图时画面用网页实景）")
     args = parser.parse_args()
 
-    print(make_douyin_video(args.text, args.out, args.voice, args.prompt_wav or None))
+    print(make_douyin_video(args.text, args.out, args.voice, args.prompt_wav or None, args.shots_dir or None))
 
 
 if __name__ == "__main__":

@@ -19,6 +19,46 @@
 
 ---
 
+## [2026-08-09] v1.2.20 宣传视频加入智序者网页实景画面
+
+### 需求背景
+
+用户澄清制作视频的意图：「不止有文案，还要有智序者网页的画面」。
+此前视频只有渐变字幕背景，太单薄；用户想要真实的智序者 Web 页面画面
+（/、/memory、/genome、/knowledge）出现在视频里。
+
+### 方案
+
+**网页截图 → 视频卡片帧**：用 Edge 无头浏览器截取 4 个页面的真实画面，
+[video_maker.py](file:///t:/zhixuzhe/engine/tools/video_maker.py) 新增
+`render_web_frame()`：把网页截图作为「卡片」嵌入竖屏帧上方区域（1080x1020，
+圆角 + 轻微提亮），下方保留大字幕。每句按语义自动匹配页面：
+- 「记忆/记住/回顾/经验/私有」→ memory 页
+- 「基因/进化/开源/查看」→ genome 页
+- 「云端/模型/知识/学习」→ knowledge 页
+- 其余 → home 页
+
+### 新增
+
+- [video_maker.py](file:///t:/zhixuzhe/engine/tools/video_maker.py)：
+  - `_load_web_shots()`：加载 `.runtime/shots/` 下页面截图（hd_ 高清优先，
+    只认 home/memory/genome/knowledge 四页）
+  - `_pick_web_shot()`：句子语义 → 页面匹配
+  - `render_web_frame()`：网页画面卡片 + 字幕合成帧
+  - `--shots-dir` 参数：可指定截图目录（默认 `.runtime/shots/`）
+  - 截图目录无可用画面时自动回退原渐变背景渲染（向后兼容）
+- Edge 无头截图经验：`--headless=new` 多页连续截图会因实例冲突失败，
+  需逐个执行 + 等待进程退出（用独立 `--user-data-dir`）
+
+### 验证
+
+- 视频 `videos/douyin_web_20260809.mp4`：42.3s / 9 句 / 1080x1920 @30fps /
+  cosyvoice 无回退 / 网页实景画面四页轮换正常
+- 帧抽查：顶部标题、网页卡片、下方字幕布局正确，亮度 26~31
+- 无截图目录时回退渐变背景渲染，旧行为保持
+
+---
+
 ## [2026-08-09] v1.2.19 宣传视频文案重写 + 音调优化
 
 ### 需求背景
