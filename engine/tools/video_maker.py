@@ -200,6 +200,50 @@ def _pick_web_shot(
     return list(shots.keys())[idx % len(shots)]
 
 
+def _detect_focus_roi(img: np.ndarray) -> tuple[float, float, float, float] | None:
+    """自动检测截图主体内容区域（归一化 ROI：x, y, w, h ∈ 0~1）。
+
+    思路（内容密度法）：网页/桌面截图通常顶部是导航栏、四周有留白，
+    主体内容（对话、列表、代码）在中央且视觉密度最高。
+    转灰度后按行计算相邻像素差均值（内容能量），取顶部 18% 以下、
+    内容能量峰值附近约 60% 高度、中央 88% 宽度作为聚焦 ROI。
+    检测失败（纯色图等）返回 None，调用方回退整图显示。
+    """
+    if img.ndim != 3 or img.shape[0] < 50:
+        return None
+    H, W = img.shape[:2]
+    gray = img.mean(axis=2).astype(np.float64)
+    # 行内容能量 = 行内相邻像素差均值（文字/UI 边缘越密集能量越高）
+    row_energy = np.abs(np.diff(gray, axis=1)).mean(axis=1)
+    # 平滑（窗口约 2% 高度），消除单行噪声
+    k = max(1, H // 50)
+    row_energy = np.convolve(row_energy, np.ones(k) / k, mode="same")
+    start_y = int(H * 0.18)
+    band = row_energy[start_y:]
+    if band.size == 0 or band.max() < 1e-6:
+        return None
+    peak = start_y + int(np.argmax(band))
+    half_h = int(H * 0.30)
+    y0 = max(int(H * 0.08), peak - half_h)  # 至少从顶部 8% 以下开始，避免吞入导航栏
+    y1 = min(H, y0 + int(H * 0.60))
+    x0, x1 = int(W * 0.06), int(W * 0.94)
+    if y1 - y0 < int(H * 0.25):
+        return None
+    return (x0 / W, y0 / H, (x1 - x0) / W, (y1 - y0) / H)
+
+
+def _rounded_border_overlay(w: int, h: int) -> "Image.Image":
+    """生成画中画青绿描边层（RGBA，尺寸 w×h 含 2px 内边距），突出焦点感。"""
+    from PIL import Image, ImageDraw
+
+    overlay = Image.new("RGBA", (w + 4, h + 4), (0, 0, 0, 0))
+    d = ImageDraw.Draw(overlay)
+    d.rounded_rectangle(
+        [2, 2, w + 2, h + 2], radius=8, outline=(94, 234, 212, 230), width=3
+    )
+    return overlay
+
+
 def _draw_text_with_stroke(draw, xy, text, font, fill, stroke_fill, stroke_width=3):
     """在 PIL 上画带描边的文字（用于视频字幕，增强可读性）"""
     x, y = xy
@@ -228,17 +272,21 @@ def render_web_frame(
     page_label: str | None = None,
     progress: float = 0.0,
     cta_url: str = "",
+    focus_roi: tuple[float, float, float, float] | None = None,
 ) -> np.ndarray:
-    """全屏网页实景帧：模糊背景铺底 + 清晰截图完整居中 + 描边字幕。
+    """全屏网页实景帧：模糊背景铺底 + 主画面特写/整图 + 右下角画中画 + 描边字幕。
 
     progress: 0~1，片段内进度（用于 Ken Burns 缩放，本函数仅渲染单帧；
              动态缩放由外层 _make_kb_clip 通过 resize+position 实现）。
-    cta_url：可选，底部固定显示的 CTA 链接（终端/代码风格绿色字），
-             用于引导观众访问 GitHub 等地址。
+    cta_url：可选，底部固定显示的 CTA 链接（终端/代码风格绿色字）。
+    focus_roi：可选归一化 ROI (x, y, w, h)。提供时主画面为该区域特写放大
+             （智能聚焦），右下角显示整图小窗（画中画，保留全局细节）；
+             为 None 时主画面为整图 contain 显示（回退逻辑）。
     布局：
       - 底层：同图 cover 铺满 + 高斯模糊+压暗，填满所有空白提供氛围
-      - 中层：网页截图 contain 等比缩放居中完整显示（所有细节可见，带圆角+投影）
-      - 顶层：品牌角标 + 页面标签（贴截图右下角）+ 底部描边字幕（暗化区）+ CTA URL
+      - 中层：主画面（ROI 特写 或 整图 contain）居中偏上，圆角+投影
+      - 画中画：右下角整图小窗（仅 focus_roi 时显示），带边框+投影
+      - 顶层：品牌角标 + 页面标签 + 底部描边字幕（纯色区）+ CTA URL
     """
     from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
@@ -259,31 +307,64 @@ def render_web_frame(
     darken = Image.new("RGBA", (W, H), (0, 0, 0, 90))
     canvas = Image.alpha_composite(blur_layer.convert("RGBA"), darken)
 
-    # === 中层：清晰完整图（contain 模式，等比缩放居中，所有细节完整可见）===
-    # 宽度占满画布（1080px），高度按比例自适应——横屏图宽满高自然，竖屏图高满宽自然
-    # 垂直偏上放置（顶部留 110px 给品牌角标）
-    scale_contain = W / web_pil.width  # 宽度优先：宽满屏，高按比例
-    nw_s, nh_s = int(web_pil.width * scale_contain), int(web_pil.height * scale_contain)
-    # 如果高度超出可用区域（截图本身很长），则改为高度限制
+    # === 中层：主画面（ROI 特写 或 整图 contain，等比缩放居中偏上）===
+    # focus_roi 提供时裁剪该区域做特写放大（智能聚焦）；否则整图 contain
+    if focus_roi:
+        fx, fy, fw, fh = focus_roi
+        cx0 = int(fx * web_pil.width)
+        cy0 = int(fy * web_pil.height)
+        cx1 = min(web_pil.width, int((fx + fw) * web_pil.width))
+        cy1 = min(web_pil.height, int((fy + fh) * web_pil.height))
+        if cx1 - cx0 >= 50 and cy1 - cy0 >= 50:
+            main_pil = web_pil.crop((cx0, cy0, cx1, cy1))
+        else:
+            main_pil = web_pil
+    else:
+        main_pil = web_pil
+    # 宽度占满画布（1080px），高度按比例自适应；超出可用区则限制高度
+    scale_contain = W / main_pil.width
+    nw_s, nh_s = int(main_pil.width * scale_contain), int(main_pil.height * scale_contain)
     max_h = H - 360  # 底部留 360px 给字幕+CTA
     if nh_s > max_h:
-        scale_contain = max_h / web_pil.height
-        nw_s, nh_s = int(web_pil.width * scale_contain), max_h
-    sharp_layer = web_pil.resize((nw_s, nh_s), Image.LANCZOS)
+        scale_contain = max_h / main_pil.height
+        nw_s, nh_s = int(main_pil.width * scale_contain), max_h
+    sharp_layer = main_pil.resize((nw_s, nh_s), Image.LANCZOS)
     # 水平居中，垂直偏上
     paste_x = (W - nw_s) // 2
     paste_y = 110  # 顶部留出品牌角标空间
-    # 给清晰图加投影（浮起感，与模糊背景分层）
+    # 给主画面加投影（浮起感，与模糊背景分层）
     shadow = Image.new("RGBA", (nw_s + 40, nh_s + 40), (0, 0, 0, 0))
     sd = ImageDraw.Draw(shadow)
     sd.rounded_rectangle([20, 20, nw_s + 20, nh_s + 20], radius=12, fill=(0, 0, 0, 120))
     shadow = shadow.filter(ImageFilter.GaussianBlur(radius=18))
     canvas.paste(shadow, (paste_x - 20, paste_y - 10), shadow)
-    # 贴清晰图（圆角）
+    # 贴主画面（圆角）
     sharp_rgba = sharp_layer.convert("RGBA")
     mask = Image.new("L", (nw_s, nh_s), 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, nw_s, nh_s], radius=12, fill=255)
     canvas.paste(sharp_rgba, (paste_x, paste_y), mask)
+
+    # === 画中画：右下角整图小窗（focus_roi 特写时保留全局细节）===
+    thumb_pil = None
+    if focus_roi and main_pil is not web_pil:
+        thumb_w = int(W * 0.30)
+        thumb_h = int(thumb_w * web_pil.height / web_pil.width)
+        thumb = web_pil.resize((thumb_w, thumb_h), Image.LANCZOS)
+        thumb_px = W - thumb_w - 36
+        thumb_py = paste_y + nh_s - thumb_h - 36  # 贴主画面右下角内侧
+        # 投影
+        th_shadow = Image.new("RGBA", (thumb_w + 24, thumb_h + 24), (0, 0, 0, 0))
+        th_draw = ImageDraw.Draw(th_shadow)
+        th_draw.rounded_rectangle([12, 12, thumb_w + 12, thumb_h + 12], radius=8, fill=(0, 0, 0, 140))
+        th_shadow = th_shadow.filter(ImageFilter.GaussianBlur(radius=10))
+        canvas.paste(th_shadow, (thumb_px - 12, thumb_py - 6), th_shadow)
+        # 圆角小窗 + 青绿描边
+        thumb_rgba = thumb.convert("RGBA")
+        th_mask = Image.new("L", (thumb_w, thumb_h), 0)
+        ImageDraw.Draw(th_mask).rounded_rectangle([0, 0, thumb_w, thumb_h], radius=8, fill=255)
+        canvas.paste(thumb_rgba, (thumb_px, thumb_py), th_mask)
+        canvas.alpha_composite(_rounded_border_overlay(thumb_w, thumb_h), (thumb_px - 2, thumb_py - 2))
+        thumb_pil = (thumb_px, thumb_py, thumb_w, thumb_h)
 
     draw = ImageDraw.Draw(canvas)
 
@@ -311,16 +392,20 @@ def render_web_frame(
     draw.rounded_rectangle([30, 50, 30 + bw_text + 32, 92], radius=8, fill=(0, 0, 0, 100))
     draw.text((46, 57), brand, font=foot_font, fill=(94, 234, 212))
 
-    # 页面标签（贴在清晰截图右下角，标识当前展示的页面）
+    # 页面标签（有画中画时贴主画面左上角，否则右下角，避免与右下角小窗重叠）
     if page_label:
         label = page_label
         lw = draw.textlength(label, font=foot_font)
-        label_right = paste_x + nw_s - 16
-        label_bottom = sharp_bottom - 14
-        label_x = label_right - lw - 24
-        label_y = label_bottom - 36
+        if thumb_pil:
+            label_x = paste_x + 16
+            label_y = paste_y + 12
+        else:
+            label_right = paste_x + nw_s - 16
+            label_bottom = sharp_bottom - 14
+            label_x = label_right - lw - 24
+            label_y = label_bottom - 36
         draw.rounded_rectangle(
-            [label_x, label_y, label_right, label_y + 38],
+            [label_x, label_y, label_x + lw + 24, label_y + 38],
             radius=10, fill=(0, 0, 0, 150),
         )
         draw.text((label_x + 12, label_y + 5), label, font=foot_font, fill=(220, 230, 245))
@@ -738,7 +823,12 @@ def make_douyin_video(
     for i, (sent, mp3, duration) in enumerate(segments):
         if web_shots:
             page = _pick_web_shot(sent, web_shots, None, i)
-            frame = render_web_frame(background, web_shots[page], title, sent, font_path, page_label=page, cta_url=cta_url)
+            # 智能聚焦：检测当前页面主体内容区域做特写，画面跟随文案"聚焦"到关键区域
+            roi = _detect_focus_roi(web_shots[page])
+            frame = render_web_frame(
+                background, web_shots[page], title, sent, font_path,
+                page_label=page, cta_url=cta_url, focus_roi=roi,
+            )
         else:
             frame = render_frame(background, title, sent, font_path, cta_url=cta_url)
 
