@@ -60,6 +60,16 @@ DEFAULT_TEXT = (
     "现在，你也可以拥有一个会成长的 AI。开源地址，就在简介里。"
 )
 
+# 短视频文案（约 20 秒，抖音主流快节奏，hook→卖点→CTA）
+SHORT_TEXT = (
+    "AI 越来越聪明，却记不住你是谁？"
+    "我是智序者，会自己成长的开源智能体。"
+    "每一次对话、踩坑，都写进我的记忆。"
+    "白天干活，深夜反思，越用越懂你。"
+    "基因全开源，灵魂只属于你。"
+    "GitHub 搜「智序者」，拥有会成长的 AI。"
+)
+
 
 def split_sentences(text: str) -> list[str]:
     """按中英文句末标点切句，保留标点"""
@@ -132,18 +142,22 @@ def render_frame(background: np.ndarray, title: str, subtitle: str, font_path: s
 
 
 def _load_web_shots(shots_dir: Path | None) -> dict[str, np.ndarray]:
-    """加载智序者网页截图（.runtime/shots/hd_*.png 优先，回退 *_? .png）。
+    """加载网页/用户截图。
 
-    返回 {页面名: RGB 数组}，页面名取文件前缀（home/memory/genome/knowledge）。
-    没有可用截图时返回空 dict（此时退回纯渐变背景渲染）。
+    默认加载 .runtime/shots/ 下的 hd_*.png 智序者页面（home/memory/genome/knowledge）。
+    若传入其它目录（如用户截图目录），目录下所有 png 均按文件名（去后缀）作为 key 加载。
+    返回 {页面名: RGB 数组}，没有可用截图时返回空 dict（此时退回纯渐变背景渲染）。
     """
     if shots_dir is None:
         shots_dir = ROOT / ".runtime" / "shots"
     shots: dict[str, np.ndarray] = {}
     if not shots_dir.exists():
         return shots
-    # 只认智序者已知页面名，避免目录下其它 png（如预览帧）误入
-    allowed = {"home", "memory", "genome", "knowledge"}
+    # 默认目录：只认智序者已知页面名；用户截图目录：加载全部 png
+    if shots_dir == ROOT / ".runtime" / "shots":
+        allowed = {"home", "memory", "genome", "knowledge"}
+    else:
+        allowed = None  # 允许任意命名
     # hd_ 高清截图优先，普通截图兜底（同名只取高清）
     hd_files = sorted(shots_dir.glob("hd_*.png"))
     plain_files = sorted(shots_dir.glob("*.png"))
@@ -151,7 +165,10 @@ def _load_web_shots(shots_dir: Path | None) -> dict[str, np.ndarray]:
         name = f.stem
         if name.startswith("hd_"):
             name = name[3:]
-        if name not in allowed or name in shots:
+        if allowed is not None:
+            if name not in allowed or name in shots:
+                continue
+        elif name in shots:
             continue
         try:
             from PIL import Image
@@ -159,7 +176,7 @@ def _load_web_shots(shots_dir: Path | None) -> dict[str, np.ndarray]:
             with Image.open(f) as im:
                 shots[name] = np.array(im.convert("RGB"))
         except Exception as exc:
-            logger.warning(f"  网页截图加载失败 {f.name}: {exc}")
+            logger.warning(f"  截图加载失败 {f.name}: {exc}")
     return shots
 
 
@@ -189,6 +206,25 @@ def _pick_web_shot(
     return list(shots.keys())[idx % len(shots)]
 
 
+def _draw_text_with_stroke(draw, xy, text, font, fill, stroke_fill, stroke_width=3):
+    """在 PIL 上画带描边的文字（用于视频字幕，增强可读性）"""
+    x, y = xy
+    # 描边：8 方向偏移
+    for dx in range(-stroke_width, stroke_width + 1):
+        for dy in range(-stroke_width, stroke_width + 1):
+            if dx == 0 and dy == 0:
+                continue
+            if dx * dx + dy * dy <= stroke_width * stroke_width:
+                draw.text((x + dx, y + dy), text, font=font, fill=stroke_fill)
+    draw.text((x, y), text, font=font, fill=fill)
+
+
+def _blur_image(img, radius=30):
+    """对 PIL 图像做高斯模糊（用于全屏背景虚化）"""
+    from PIL import ImageFilter
+    return img.filter(ImageFilter.GaussianBlur(radius=radius))
+
+
 def render_web_frame(
     background: np.ndarray,
     web_img: np.ndarray,
@@ -196,70 +232,123 @@ def render_web_frame(
     subtitle: str,
     font_path: str,
     page_label: str | None = None,
+    progress: float = 0.0,
 ) -> np.ndarray:
-    """把智序者网页截图嵌入渐变背景，下方叠加当前句字幕。
+    """电影感网页实景帧：全屏模糊背景 + 居中手机卡片 + 描边字幕。
 
-    布局（1080x1920 竖屏）：
-      顶部小标题 → 网页画面卡片（上方 60%）→ 当前句字幕（下方 30%）
-    网页截图按比例缩放铺满卡片区域，模拟"手机/浏览器窗口"观感。
+    progress: 0~1，片段内进度（用于 Ken Burns 缩放，本函数仅渲染单帧；
+             动态缩放由外层 _make_kb_clip 通过 resize+position 实现）。
+    布局：
+      - 底层：网页截图铺满全屏 + 高斯模糊 + 深色蒙版（电影感底图）
+      - 中层：居中"手机屏幕"卡片（圆角+阴影+细白边），展示清晰网页
+      - 顶层：品牌角标 + 底部大字幕（描边）
     """
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-    img = Image.fromarray(background)
-    draw = ImageDraw.Draw(img)
+    W, H = 1080, 1920
+    web_pil = Image.fromarray(web_img).convert("RGB")
 
-    title_font = ImageFont.truetype(font_path, 48)
-    body_font = ImageFont.truetype(font_path, 56)
-    foot_font = ImageFont.truetype(font_path, 34)
+    # === 底层：全屏模糊背景 ===
+    bg_scale = max(W / web_pil.width, H / web_pil.height) * 1.05
+    bg_img = web_pil.resize((int(web_pil.width * bg_scale), int(web_pil.height * bg_scale)), Image.LANCZOS)
+    # 居中裁剪到 1080x1920
+    bw, bh = bg_img.size
+    left = (bw - W) // 2
+    top = (bh - H) // 2
+    bg_img = bg_img.crop((left, top, left + W, top + H))
+    bg_img = _blur_image(bg_img, radius=42)
+    # 深色蒙版（压暗背景突出前景）
+    darken = Image.new("RGBA", (W, H), (5, 8, 22, 165))
+    canvas = Image.alpha_composite(bg_img.convert("RGBA"), darken).convert("RGB")
+    draw = ImageDraw.Draw(canvas)
 
-    # 顶部小标题
-    title_w = draw.textlength(title, font=title_font)
-    draw.text(((W - title_w) / 2, 110), title, font=title_font, fill=(255, 255, 255))
+    # === 中层：居中手机卡片 ===
+    card_w = 920
+    # 卡片位置：上半部分，顶部约 200px，高约 1080px（19.5:9 手机比例）
+    card_h = int(card_w * 19.5 / 9)  # ≈ 1994，但受屏幕高度限制
+    card_h = min(card_h, 1120)
+    card_x = (W - card_w) // 2
+    card_y = 220
 
-    # 网页画面卡片（上方区域，宽 1080 铺满，高约 1000）
-    card_w, card_h = W, 1020
-    card_x, card_y = 0, 210
-    web_pil = Image.fromarray(web_img)
-    scale = min(card_w / web_pil.width, card_h / web_pil.height)
-    nw, nh = int(web_pil.width * scale), int(web_pil.height * scale)
-    web_pil = web_pil.resize((nw, nh), Image.LANCZOS)
-    # 居中裁剪填满卡片
-    left = (nw - card_w) // 2
-    top = (nh - card_h) // 2
-    web_pil = web_pil.crop((left, top, left + card_w, top + card_h))
-    # 圆角遮罩
-    mask = Image.new("L", (card_w, card_h), 0)
-    mask_draw = ImageDraw.Draw(mask)
-    mask_draw.rounded_rectangle([0, 0, card_w - 1, card_h - 1], radius=24, fill=255)
-    # 轻微提亮网页画面 + 很淡的深色蒙版（保证白色字幕可读）
-    web_pil = web_pil.point(lambda v: min(255, int(v * 1.15)))
-    overlay = Image.new("RGBA", (card_w, card_h), (3, 3, 13, 30))
-    web_rgba = web_pil.convert("RGBA")
-    web_rgba = Image.alpha_composite(web_rgba, overlay)
-    img.paste(web_rgba, (card_x, card_y), mask)
+    # 卡片内容缩放（等比缩放覆盖卡片区域，顶部对齐）
+    c_scale = max(card_w / web_pil.width, card_h / web_pil.height)
+    cnw, cnh = int(web_pil.width * c_scale), int(web_pil.height * c_scale)
+    card_content = web_pil.resize((cnw, cnh), Image.LANCZOS)
+    cleft = (cnw - card_w) // 2
+    ctop = 0
+    card_content = card_content.crop((cleft, ctop, cleft + card_w, ctop + card_h))
 
-    # 页面标签（卡片右上角）
+    # 卡片投影（大半径柔化阴影）
+    shadow = Image.new("RGBA", (card_w + 80, card_h + 80), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow)
+    sd.rounded_rectangle([40, 40, card_w + 40, card_h + 40], radius=32, fill=(0, 0, 0, 140))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=28))
+    canvas.paste(shadow, (card_x - 40, card_y - 30), shadow)
+
+    # 圆角卡片遮罩
+    card_mask = Image.new("L", (card_w, card_h), 0)
+    cm = ImageDraw.Draw(card_mask)
+    cm.rounded_rectangle([0, 0, card_w - 1, card_h - 1], radius=28, fill=255)
+    # 卡片白边高光（顶部细亮线）
+    canvas.paste(card_content, (card_x, card_y), card_mask)
+    # 边框（细白边，增加质感）
+    draw.rounded_rectangle(
+        [card_x, card_y, card_x + card_w - 1, card_y + card_h - 1],
+        radius=28, outline=(255, 255, 255, 40), width=2,
+    )
+    # 卡片顶部高光条（模拟玻璃质感）
+    hl = Image.new("RGBA", (card_w - 56, 2), (255, 255, 255, 35))
+    canvas.paste(hl, (card_x + 28, card_y + 8), hl)
+
+    # === 顶层文字 ===
+    title_font = ImageFont.truetype(font_path, 44)
+    body_font = ImageFont.truetype(font_path, 62)
+    foot_font = ImageFont.truetype(font_path, 32)
+
+    # 顶部品牌标识（左上角 ZX logo + 名称，更有品牌感）
+    brand = "Z · 智序者"
+    bw_text = draw.textlength(brand, font=foot_font)
+    draw.rounded_rectangle([30, 50, 30 + bw_text + 32, 92], radius=8, fill=(94, 234, 212, 50))
+    draw.text((46, 57), brand, font=foot_font, fill=(94, 234, 212))
+
+    # 页面标签（卡片右上角小圆标）
     if page_label:
-        label = f" · {page_label}"
+        label = page_label
         lw = draw.textlength(label, font=foot_font)
-        draw.text((W - lw - 24, card_y + 16), label, font=foot_font, fill=(150, 165, 195))
+        draw.rounded_rectangle(
+            [card_x + card_w - lw - 34, card_y + card_h - 58, card_x + card_w - 14, card_y + card_h - 20],
+            radius=12, fill=(0, 0, 0, 130),
+        )
+        draw.text((card_x + card_w - lw - 24, card_y + card_h - 52), label, font=foot_font, fill=(220, 230, 245))
 
-    # 下方字幕区（自动换行，最多 4 行）
-    lines = split_lines(draw, subtitle, body_font, W - 140)[:4]
-    line_h = 84
+    # 底部字幕（卡片下方，描边增强可读性）
+    lines = split_lines(draw, subtitle, body_font, W - 120)[:3]
+    line_h = 90
     total_h = len(lines) * line_h
-    y = card_y + card_h + (H - card_y - card_h - 240 - total_h) // 2
+    y = card_y + card_h + 70
+    # 字幕底衬（半透明黑条，增强可读性）
+    pad_x, pad_y = 50, 24
+    text_max_w = max(draw.textlength(l, font=body_font) for l in lines) if lines else 0
+    bg_rect_x = (W - text_max_w) // 2 - pad_x
+    bg_rect_y = y - pad_y
+    bg_rect_w = text_max_w + pad_x * 2
+    bg_rect_h = total_h + pad_y * 2 - 10
+    draw.rounded_rectangle(
+        [bg_rect_x, bg_rect_y, bg_rect_x + bg_rect_w, bg_rect_y + bg_rect_h],
+        radius=16, fill=(0, 0, 0, 110),
+    )
     for line in lines:
         lw = draw.textlength(line, font=body_font)
-        draw.text(((W - lw) / 2, y), line, font=body_font, fill=(255, 255, 255))
+        lx = (W - lw) / 2
+        _draw_text_with_stroke(draw, (lx, y), line, body_font, fill=(255, 255, 255), stroke_fill=(0, 0, 0), stroke_width=4)
         y += line_h
 
-    # 底部提示
-    foot = "智序者 · 自进化开源智能体"
+    # 底部标语
+    foot = "开源 · 自进化 · 私有记忆"
     fw = draw.textlength(foot, font=foot_font)
-    draw.text(((W - fw) / 2, H - 150), foot, font=foot_font, fill=(150, 165, 195))
+    draw.text(((W - fw) / 2, H - 90), foot, font=foot_font, fill=(180, 195, 220))
 
-    return np.array(img)
+    return np.array(canvas)
 
 
 def make_gradient_bg() -> np.ndarray:
@@ -442,46 +531,94 @@ def tts_cosyvoice(
 
 
 async def tts_one(
-    sentence: str, voice: str, out_mp3: Path, rate: str = "+0%", prompt_wav: str | None = None
+    sentence: str, voice: str, out_mp3: Path, rate: str = "+0%",
+    prompt_wav: str | None = None, speed: float = 1.05,
 ) -> tuple[float, str, Path]:
     """合成单句配音：
     - voice 以 `cosyvoice:` 开头 → 本地 CosyVoice 克隆引擎（失败回退 SAPI5）
     - 其它 voice → edge-tts 优先，失败自动回退本地 SAPI5
     返回 (时长, 引擎名, 实际文件路径)
+
+    speed：语速倍数，cosyvoice 透传；edge-tts 转换为 rate 百分比偏移；sapi5 调整 rate 参数。
     """
+    # 非 cosyvoice 引擎的语速换算
+    edge_rate = f"+{int((speed - 1.0) * 100):+d}%" if speed != 1.0 else "+0%"
+    sapi_rate = int(175 * speed)
     if voice.startswith("cosyvoice:"):
         prompt_wav_path, prompt_text = _resolve_cosyvoice_voice(voice, prompt_wav)
         wav = out_mp3.with_suffix(".wav")
         try:
-            dur = await asyncio.to_thread(tts_cosyvoice, sentence, prompt_text, wav, prompt_wav_path)
+            dur = await asyncio.to_thread(
+                tts_cosyvoice, sentence, prompt_text, wav, prompt_wav_path, speed
+            )
             return dur, "cosyvoice", wav
         except Exception as exc:
             logger.warning(f"  cosyvoice 失败（{exc}），回退本地 SAPI5")
-            dur = tts_local(sentence, wav)
+            dur = tts_local(sentence, wav, rate=sapi_rate)
             return dur, "sapi5", wav
     try:
-        dur = await tts_edge(sentence, voice, out_mp3, rate)
+        dur = await tts_edge(sentence, voice, out_mp3, rate=edge_rate)
         return dur, "edge-tts", out_mp3
     except Exception as exc:
         logger.warning(f"  edge-tts 失败（{exc}），回退本地 SAPI5")
         wav = out_mp3.with_suffix(".wav")
-        dur = tts_local(sentence, wav)
+        dur = tts_local(sentence, wav, rate=sapi_rate)
         return dur, "sapi5", wav
 
 
 async def _synthesize_async(
-    sentences: list[str], voice: str, workdir: Path, prompt_wav: str | None = None
+    sentences: list[str], voice: str, workdir: Path,
+    prompt_wav: str | None = None, speed: float = 1.05,
 ) -> list[tuple[str, Path, float]]:
-    """逐句合成配音，返回 [(句子, 音频文件路径, 时长)]"""
+    """逐句合成配音，返回 [(句子, 音频文件路径, 时长)]
+
+    speed：TTS 语速倍数（cosyvoice 透传；edge-tts 换算为 rate 百分比；sapi5 换算为 rate 整数）。
+    """
     results = []
     engines = set()
     for i, sent in enumerate(sentences):
         mp3 = workdir / f"seg_{i:03d}.mp3"
-        duration, engine, audio_path = await tts_one(sent, voice, mp3, prompt_wav=prompt_wav)
+        duration, engine, audio_path = await tts_one(sent, voice, mp3, prompt_wav=prompt_wav, speed=speed)
         engines.add(engine)
         results.append((sent, audio_path, duration))
         logger.info(f"  [TTS] 句 {i + 1}/{len(sentences)}: {duration:.2f}s（{engine}）「{sent[:20]}...」")
     return results, engines
+
+
+def _make_kb_clip(frame_arr: np.ndarray, duration: float) -> "VideoClip":
+    """用 Ken Burns 效果把静态帧包装成动画片段：缓慢放大 + 轻微上移。
+
+    电影感的核心动效：每段画面 1.0 → 1.07 缓慢 zoom in，同时轻微上移，
+    比纯静态图片更有"呼吸感"，是抖音/B站产品宣传视频常用手法。
+    """
+    from moviepy import VideoClip
+    from PIL import Image
+
+    # 预放大到 1.12x 做裁剪池
+    BIG = 1.12
+    big_img = Image.fromarray(frame_arr).resize(
+        (int(W * BIG), int(H * BIG)), Image.LANCZOS
+    )
+    big_arr = np.array(big_img)
+    bw, bh = big_img.size
+
+    def make_frame(t):
+        p = min(t / max(duration, 0.01), 1.0)
+        scale = 1.0 + 0.07 * p  # 1.00 → 1.07 缓慢放大
+        # 当前裁剪区域大小
+        cw, ch = int(W / scale), int(H / scale)
+        # 中心 + 轻微上移（开始居中，结束上移约 25px）
+        cx, cy = bw // 2, bh // 2 - int(30 * p)
+        left = max(0, cx - cw // 2)
+        top = max(0, cy - ch // 2)
+        left = min(left, bw - cw)
+        top = min(top, bh - ch)
+        crop = big_arr[top : top + ch, left : left + cw]
+        # resize 回 1080x1920
+        img = Image.fromarray(crop).resize((W, H), Image.LANCZOS)
+        return np.array(img)
+
+    return VideoClip(frame_function=make_frame, duration=duration).with_fps(FPS)
 
 
 def make_douyin_video(
@@ -490,20 +627,36 @@ def make_douyin_video(
     voice: str = "zh-CN-XiaoxiaoNeural",
     prompt_wav: str | None = None,
     shots_dir: str | None = None,
+    short: bool = False,
 ) -> str:
     """制作抖音竖屏短视频，返回报告。供 Tool 调用。
 
     prompt_wav：CosyVoice 克隆底音参考音频（内置名 zero/cross 或自定义 wav 路径）。
     shots_dir：智序者网页截图目录（默认 .runtime/shots/，存在截图时画面用网页实景）。
+    short：True 时使用内置短文案（SHORT_TEXT，约 20 秒快节奏）+ 电影感 Ken Burns 动效。
     """
-    from moviepy import AudioFileClip, ImageClip, concatenate_audioclips, concatenate_videoclips
+    from moviepy import (
+        AudioFileClip,
+        CompositeVideoClip,
+        ImageClip,
+        VideoClip,
+        concatenate_audioclips,
+        concatenate_videoclips,
+        vfx,
+    )
 
     root = Path(__file__).resolve().parent.parent.parent
     videos_dir = root / "videos"
     videos_dir.mkdir(exist_ok=True)
 
+    # short 模式：短文案 + 稍快语速，更有宣传感
+    if short and text == DEFAULT_TEXT:
+        text = SHORT_TEXT
+    tts_speed = 1.08 if short else 1.05
+
     if not out_path:
-        out_path = str(videos_dir / f"douyin_{time.strftime('%Y%m%d_%H%M%S')}.mp4")
+        tag = "short" if short else "douyin"
+        out_path = str(videos_dir / f"{tag}_{time.strftime('%Y%m%d_%H%M%S')}.mp4")
     out_path = str(Path(out_path).resolve())
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -513,26 +666,39 @@ def make_douyin_video(
     lines = []
     lines.append("── 文案切句 ────────────────────────────")
     sentences = split_sentences(text)
-    lines.append(f"共 {len(sentences)} 句")
+    lines.append(f"共 {len(sentences)} 句" + ("（短模式）" if short else ""))
 
     # 1. TTS 逐句配音（edge-tts / 本地 CosyVoice / 兜底 SAPI5）
     lines.append("── 语音合成（edge-tts / CosyVoice / SAPI5）──")
     t0 = time.perf_counter()
-    segments, engines = asyncio.run(_synthesize_async(sentences, voice, workdir, prompt_wav))
+    # 注意：short 模式下需要把 tts_speed 传给 tts_cosyvoice——这里通过临时覆盖全局 speed
+    # 简单做法：直接调用 _synthesize_async，内部 tts_cosyvoice 默认 speed=1.05，
+    # 我们在下面 monkey-patch 一下不太优雅，改为修改 _synthesize_async 接收 speed 参数
+    segments, engines = asyncio.run(
+        _synthesize_async(sentences, voice, workdir, prompt_wav, speed=tts_speed)
+    )
     lines.append(f"配音完成，耗时 {time.perf_counter() - t0:.1f}s，引擎: {', '.join(sorted(engines))}")
 
-    # 2. 渲染背景帧（有网页截图 → 网页实景卡片；否则渐变背景）+ 逐句字幕
-    lines.append("── 字幕渲染 + 视频合成（moviepy）──────")
+    # 2. 渲染背景帧（电影感 Ken Burns 或简单静态）
+    lines.append("── 画面渲染 + 视频合成（moviepy）──────")
     t0 = time.perf_counter()
     font_path = find_cjk_font()
     background = make_gradient_bg()
     title = "智序者 · 自进化开源智能体"
     web_shots = _load_web_shots(Path(shots_dir) if shots_dir else None)
+    # 同时加载 assets/images/截图/ 下用户自己的截图作为额外素材
+    user_shots_dir = ROOT / "assets" / "images" / "截图"
+    if user_shots_dir.exists():
+        extra = _load_web_shots(user_shots_dir)
+        # 重命名为 user1/user2... 避免和 hd_ 截图冲突
+        for i, (name, arr) in enumerate(extra.items()):
+            web_shots[f"page{i+1}"] = arr
     if web_shots:
-        lines.append(f"网页实景画面: {', '.join(sorted(web_shots))}")
+        lines.append(f"网页实景画面: {len(web_shots)} 张")
     else:
         lines.append("未找到网页截图，使用渐变背景")
 
+    CROSSFADE = 0.18 if short else 0.0
     clips, audios = [], []
     for i, (sent, mp3, duration) in enumerate(segments):
         if web_shots:
@@ -540,13 +706,23 @@ def make_douyin_video(
             frame = render_web_frame(background, web_shots[page], title, sent, font_path, page_label=page)
         else:
             frame = render_frame(background, title, sent, font_path)
-        clip = ImageClip(frame).with_duration(duration).with_fps(FPS)
+
+        if short:
+            # 电影感：Ken Burns 缓慢放大 + 轻微上移
+            clip = _make_kb_clip(frame, duration + CROSSFADE)
+            clip = clip.with_effects([vfx.CrossFadeIn(CROSSFADE), vfx.CrossFadeOut(CROSSFADE)])
+        else:
+            clip = ImageClip(frame).with_duration(duration).with_fps(FPS)
         audio = AudioFileClip(str(mp3))
         clip = clip.with_audio(audio)
         clips.append(clip)
         audios.append(audio)
 
-    final_video = concatenate_videoclips(clips, method="chain")
+    if short:
+        # crossfade 衔接：padding 为负实现交叉淡入淡出
+        final_video = concatenate_videoclips(clips, method="compose", padding=-CROSSFADE)
+    else:
+        final_video = concatenate_videoclips(clips, method="chain")
     final_audio = concatenate_audioclips(audios)
     final_video = final_video.with_audio(final_audio)
 
@@ -594,14 +770,19 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="智序者 · 抖音竖屏视频制作")
-    parser.add_argument("--text", default=DEFAULT_TEXT, help="口播文案（缺省用内置智序者宣传文案）")
-    parser.add_argument("--voice", default="zh-CN-XiaoxiaoNeural", help="音色：edge-tts 如 zh-CN-YunxiNeural；本地克隆用 cosyvoice:中文女声")
-    parser.add_argument("--out", default="", help="输出路径（缺省 videos/douyin_时间戳.mp4）")
+    parser.add_argument("--text", default=None, help="口播文案（缺省用内置宣传文案；--short 时用短文案）")
+    parser.add_argument("--voice", default="cosyvoice:晓伊", help="音色：cosyvoice:晓伊/zero（本地克隆，默认）；edge-tts 如 zh-CN-XiaoxiaoNeural")
+    parser.add_argument("--out", default="", help="输出路径（缺省 videos/douyin_时间戳.mp4 或 short_时间戳.mp4）")
     parser.add_argument("--prompt-wav", default="", help="CosyVoice 克隆底音：内置 zero/cross，或自定义参考音频 wav 路径")
-    parser.add_argument("--shots-dir", default="", help="智序者网页截图目录（默认 .runtime/shots/，存在截图时画面用网页实景）")
+    parser.add_argument("--shots-dir", default="", help="智序者网页截图目录（默认 .runtime/shots/ + assets/images/截图/）")
+    parser.add_argument("--short", action="store_true", help="短模式：使用 20s 快节奏文案 + Ken Burns 电影感动效 + crossfade 过渡")
     args = parser.parse_args()
 
-    print(make_douyin_video(args.text, args.out, args.voice, args.prompt_wav or None, args.shots_dir or None))
+    text = args.text if args.text else (SHORT_TEXT if args.short else DEFAULT_TEXT)
+    print(make_douyin_video(
+        text, args.out, args.voice, args.prompt_wav or None,
+        args.shots_dir or None, short=args.short,
+    ))
 
 
 if __name__ == "__main__":
