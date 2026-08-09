@@ -55,6 +55,14 @@ git 历史无需重写（无需 filter-repo）。
 - 新增"攒经验哲学"段落：先跑通进化机制、积累经验资产，等本地模型成熟时直接复用
 - 战略定位：核心描述绑在"自进化 + 模型无关"上，未来换基座无需改文案
 
+### 开源发布（v1.2.14 收尾）
+
+- 2026-08-09 推送至 GitHub：https://github.com/zhiqiluo15/zhixuzhe （分支 main，HTTPS）
+- **踩坑**：`_test_agent_real.py` 中的**假 key**（`sk-abcdef` 占位符）也被 GitHub Push Protection 按格式识别拦截推送
+  - 教训：开源前须从**历史**移除一切 `sk-` 前缀字符串，不只看工作区/索引
+- 处理：`git filter-repo --path _test_agent_real.py --invert-paths` 重写历史（本地无远程，hash 全变零外部影响），push 成功
+- 备份：重写前完整历史已备份至 `D:\Temp\zhixuzhe-pre-rewrite.bundle`
+
 ---
 
 ## [2026-08-08] v1.2.13 工作文件 Web 可视化：记忆回顾页 + 基因层页
