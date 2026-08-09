@@ -19,6 +19,49 @@
 
 ---
 
+## [2026-08-09] v1.2.16 make_video 接入本地 CosyVoice 引擎（免费好声音）
+
+### 需求背景
+
+用户问「有没有免费的好听声音可供使用」。调研结论：云端免费 TTS（edge-tts 等）已内置但需联网；
+要「好听 + 免费 + 可克隆音色」需本地开源 TTS。候选：CosyVoice2/3（阿里 0.5B）、Index-TTS2（1.5B）、
+GLM-TTS（1.5B）、F5-TTS（0.3B）。**选定 CosyVoice2**：中文顶级 + 8GB 显存可跑 + 零样本克隆 + 完全离线。
+
+### 新增
+
+- **CosyVoice 本地私有部署** `t:\zhixuzhe\.runtime\cosyvoice\`（**不进公共仓库**，私有运行环境）：
+  - Python 3.11.6 venv（`.venv311`）+ torch 2.9.1+cu128（RTX 50 系 Blackwell sm_120 可用）
+  - CosyVoice2-0.5B 模型（ModelScope 下载，约 3.9GB）
+  - [cosyvoice_server.py](file:///t:/zhixuzhe/.runtime/cosyvoice/cosyvoice_server.py)：常驻 HTTP 服务（POST /tts → wav，启动即加载模型）
+- [video_maker.py](file:///t:/zhixuzhe/engine/tools/video_maker.py) 新增**第三配音引擎**：
+  - `voice="cosyvoice:中文女声"` → 本地 CosyVoice 零样本克隆（服务未启动自动拉起，失败回退 SAPI5）
+  - 原 edge-tts → SAPI5 双引擎逻辑不变，完全向后兼容
+- [factory.py](file:///t:/zhixuzhe/engine/factory.py) make_video 工具描述更新（告知 Agent cosyvoice 引擎用法）
+
+### 踩坑（重要，可复用）
+
+1. **RTX 50 系（Blackwell sm_120）必须 torch≥2.7+cu128**：CosyVoice requirements 锁的 torch 2.3.1
+   在 cu121 下无 sm_120 kernel。直接装 2.9.1+cu128（Windows wheel 自带 CUDA 库，2.86GB）
+2. **官方 pytorch 源 2.9GB 下载超慢** → 阿里云镜像 `mirrors.aliyun.com/pytorch-wheels/cu128` 有全套
+   cp311/win_amd64 wheel；该镜像 index 格式 pip 解析不到，**直接给 wheel URL 安装**（pip install <url>）
+3. **pip 构建隔离环境缺 pkg_resources**（新版 setuptools 移除）→ `--no-build-isolation`（venv 旧版
+   setuptools 65.5.0 自带 pkg_resources）
+4. **阿里云镜像缺失的包**（antlr4-python3-runtime==4.9.*、wget、openai-whisper）→ 清华镜像
+   `pypi.tuna.tsinghua.edu.cn/simple` 可解
+5. **torchaudio 2.9 Windows 强制依赖 torchcodec**（load 报错）→ 改写 `file_utils.load_wav` 用
+   soundfile 实现（CosyVoice 源码私有补丁，不影响仓库）
+6. **Matcha-TTS 是 git submodule**：zip 解压后 third_party/Matcha-TTS 为空 → 需经 ghproxy 单独下载
+7. **inference_zero_shot 的 prompt_wav 参数是文件路径**（内部自行 load/resample），不是 tensor
+8. **Trae 沙箱**：pip 临时目录落在系统 Program Files 被拒 → `TMP/TEMP` 指向项目内 + `PYTHONDONTWRITEBYTECODE=1`
+
+### 验证
+
+- HTTP 合成：8.96s 音频 / 17.5s（RTF≈2），24000Hz 采样
+- 完整视频：`videos/cosy_test.mp4`（23.8s / h264 1080x1920 / aac / 0.6MB），全程 cosyvoice 引擎无回退
+- 引擎选择正确：Agent 传 `cosyvoice:中文女声` 即走本地克隆；普通 voice 走原 edge→SAPI5
+
+---
+
 ## [2026-08-09] v1.2.15 抖音竖屏视频制作工具（make_video）
 
 ### 需求背景

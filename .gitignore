@@ -3,6 +3,9 @@
 memory/
 logs/
 
+# 私有运行时（CosyVoice 部署、pip 临时目录、wheels）—— 本地私有，不进公共仓库
+.runtime/
+
 # 抖音视频制作产物
 videos/
 

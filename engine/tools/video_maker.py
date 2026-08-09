@@ -2,12 +2,18 @@
 """智序者 · 抖音竖屏视频制作工具
 
 把一段口播文案制作成抖音竖屏短视频：
-  文案切句 → edge-tts 逐句配音 → PIL 生成渐变字幕背景 → moviepy 合成 MP4
+  文案切句 → 逐句配音 → PIL 生成渐变字幕背景 → moviepy 合成 MP4
+
+配音引擎（voice 参数）：
+  zh-CN-* 等 edge-tts 音色  → edge-tts 优先，失败回退 Windows 本地 SAPI5
+  cosyvoice:中文女声         → 本地 CosyVoice 零样本克隆（需 .runtime/cosyvoice 私有部署，
+                               自动拉起本地服务，失败回退 SAPI5）
 
 用法：
   python engine/tools/video_maker.py                      # 内置智序者宣传文案
   python engine/tools/video_maker.py --text "自定义文案"
   python engine/tools/video_maker.py --voice zh-CN-YunxiNeural --out videos/out.mp4
+  python engine/tools/video_maker.py --voice cosyvoice:中文女声 --out videos/out.mp4
 
 API：
   make_douyin_video(text, out_path, voice) -> str        # 返回报告，供 Tool 调用
@@ -19,6 +25,7 @@ API：
 import asyncio
 import os
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -168,8 +175,89 @@ def tts_local(sentence: str, out_wav: Path, rate: int = 175) -> float:
         return a.duration
 
 
+# CosyVoice 本地服务（私有部署于 .runtime/cosyvoice，不在公共仓库）
+COSYVOICE_PORT = 9880
+
+
+def _ensure_cosyvoice_server() -> str:
+    """确保 CosyVoice 本地 TTS 服务在运行，返回 base url。
+
+    服务未启动时自动拉起：.runtime/cosyvoice/.venv311 的 Python 运行
+    cosyvoice_server.py，轮询 /health 直到就绪（模型加载约 15 秒）。
+    """
+    import requests
+
+    base = f"http://127.0.0.1:{COSYVOICE_PORT}"
+    try:
+        requests.get(base + "/health", timeout=2)
+        return base
+    except Exception:
+        pass
+
+    venv_py = ROOT / ".runtime" / "cosyvoice" / ".venv311" / "Scripts" / "python.exe"
+    server_py = ROOT / ".runtime" / "cosyvoice" / "cosyvoice_server.py"
+    if not venv_py.exists() or not server_py.exists():
+        raise RuntimeError(
+            "未找到 CosyVoice 本地部署（.runtime/cosyvoice），无法使用 cosyvoice 引擎。"
+        )
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+    subprocess.Popen(
+        [str(venv_py), str(server_py)],
+        cwd=str(server_py.parent),
+        env=env,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    deadline = time.time() + 180
+    while time.time() < deadline:
+        try:
+            requests.get(base + "/health", timeout=2)
+            return base
+        except Exception:
+            time.sleep(3)
+    raise RuntimeError("CosyVoice 服务启动超时")
+
+
+def tts_cosyvoice(sentence: str, prompt_text: str, out_wav: Path) -> float:
+    """本地 CosyVoice 零样本克隆合成单句配音（需 .runtime/cosyvoice 私有部署）。
+
+    prompt_text 为音色描述（如「中文女声」），服务端使用内置示例音频作为克隆底音。
+    返回时长（秒），wav 写入 out_wav。
+    """
+    import requests
+
+    base = _ensure_cosyvoice_server()
+    resp = requests.post(
+        base + "/tts",
+        json={"text": sentence, "prompt_text": prompt_text},
+        timeout=600,
+    )
+    resp.raise_for_status()
+    out_wav.write_bytes(resp.content)
+    dur = float(resp.headers.get("X-Duration", 0))
+    if dur <= 0:
+        from moviepy import AudioFileClip
+
+        with AudioFileClip(str(out_wav)) as a:
+            dur = a.duration
+    return dur
+
+
 async def tts_one(sentence: str, voice: str, out_mp3: Path, rate: str = "+0%") -> tuple[float, str, Path]:
-    """合成单句配音：edge-tts 优先，失败自动回退本地 SAPI5。返回 (时长, 引擎名, 实际文件路径)"""
+    """合成单句配音：
+    - voice 以 `cosyvoice:` 开头 → 本地 CosyVoice 克隆引擎（失败回退 SAPI5）
+    - 其它 voice → edge-tts 优先，失败自动回退本地 SAPI5
+    返回 (时长, 引擎名, 实际文件路径)
+    """
+    if voice.startswith("cosyvoice:"):
+        prompt_text = voice.split(":", 1)[1].strip() or "中文女声"
+        wav = out_mp3.with_suffix(".wav")
+        try:
+            dur = await asyncio.to_thread(tts_cosyvoice, sentence, prompt_text, wav)
+            return dur, "cosyvoice", wav
+        except Exception as exc:
+            logger.warning(f"  cosyvoice 失败（{exc}），回退本地 SAPI5")
+            dur = tts_local(sentence, wav)
+            return dur, "sapi5", wav
     try:
         dur = await tts_edge(sentence, voice, out_mp3, rate)
         return dur, "edge-tts", out_mp3
@@ -220,8 +308,8 @@ def make_douyin_video(
     sentences = split_sentences(text)
     lines.append(f"共 {len(sentences)} 句")
 
-    # 1. TTS 逐句配音（edge-tts 优先，失败回退本地 SAPI5）
-    lines.append("── 语音合成（edge-tts / 本地 SAPI5）────")
+    # 1. TTS 逐句配音（edge-tts / 本地 CosyVoice / 兜底 SAPI5）
+    lines.append("── 语音合成（edge-tts / CosyVoice / SAPI5）──")
     t0 = time.perf_counter()
     segments, engines = asyncio.run(_synthesize_async(sentences, voice, workdir))
     lines.append(f"配音完成，耗时 {time.perf_counter() - t0:.1f}s，引擎: {', '.join(sorted(engines))}")
@@ -291,7 +379,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="智序者 · 抖音竖屏视频制作")
     parser.add_argument("--text", default=DEFAULT_TEXT, help="口播文案（缺省用内置智序者宣传文案）")
-    parser.add_argument("--voice", default="zh-CN-XiaoxiaoNeural", help="edge-tts 音色，如 zh-CN-YunxiNeural")
+    parser.add_argument("--voice", default="zh-CN-XiaoxiaoNeural", help="音色：edge-tts 如 zh-CN-YunxiNeural；本地克隆用 cosyvoice:中文女声")
     parser.add_argument("--out", default="", help="输出路径（缺省 videos/douyin_时间戳.mp4）")
     args = parser.parse_args()
 

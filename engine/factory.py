@@ -54,9 +54,10 @@ def create_agent(project_root: Path) -> Agent:
     tools.register(Tool(
         name="make_video",
         description=(
-            "制作抖音竖屏短视频：将口播文案切句，用 edge-tts 合成中文配音，"
+            "制作抖音竖屏短视频：将口播文案切句，合成中文配音，"
             "渲染渐变字幕背景并合成 MP4（1080x1920）。"
-            "参数 text 为口播文案（留空用内置智序者宣传文案），voice 为音色。"
+            "参数 text 为口播文案（留空用内置智序者宣传文案），voice 为音色："
+            "edge-tts 音色如 zh-CN-XiaoxiaoNeural；本地 CosyVoice 克隆用 cosyvoice:中文女声。"
         ),
         func=_make_video,
         parameters={
