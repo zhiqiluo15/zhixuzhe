@@ -192,8 +192,8 @@ COSYVOICE_BUILTIN_PROMPTS = {
 # 否则 LLM 引导混乱，会导致合成内容与字幕错位（此前用「中文女声」描述是错误用法）。
 COSYVOICE_VOICES = {
     "晓伊": {
-        "wav": ROOT / ".runtime" / "cosyvoice" / "prompt_xiaoyi2.wav",
-        "text": "夜晚，是记忆最诚实的时候。那些白天来不及细想的句子，会在星光里慢慢沉淀。我想记住你的声音，记住你说过的每一个字，好让将来的我，依然是你熟悉的样子。",
+        "wav": ROOT / ".runtime" / "cosyvoice" / "prompt_xiaoyi_bright.wav",
+        "text": "你好呀！很高兴遇见你。我喜欢清晨的阳光，喜欢认真做事的人，也喜欢和你一起探索未知的每一天。让我们一起加油，成为更好的自己吧！",
     },
     "zero": {
         "wav": ROOT / ".runtime" / "cosyvoice" / "CosyVoice-main" / "asset" / "zero_shot_prompt.wav",
@@ -281,17 +281,20 @@ def _ensure_cosyvoice_server() -> str:
     raise RuntimeError("CosyVoice 服务启动超时")
 
 
-def tts_cosyvoice(sentence: str, prompt_text: str, out_wav: Path, prompt_wav: str | None = None) -> float:
+def tts_cosyvoice(
+    sentence: str, prompt_text: str, out_wav: Path, prompt_wav: str | None = None, speed: float = 1.05
+) -> float:
     """本地 CosyVoice 零样本克隆合成单句配音（需 .runtime/cosyvoice 私有部署）。
 
     prompt_text 必须为参考音频的实际朗读内容（CosyVoice 规范，否则内容漂移）；
-    prompt_wav 为克隆底音参考音频路径（空则服务端用默认音色）。
+    prompt_wav 为克隆底音参考音频路径（空则服务端用默认音色）；
+    speed 默认 1.05（略快于默认，更明亮有精神，适合宣传）。
     返回时长（秒），wav 写入 out_wav。
     """
     import requests
 
     base = _ensure_cosyvoice_server()
-    payload = {"text": sentence, "prompt_text": prompt_text}
+    payload = {"text": sentence, "prompt_text": prompt_text, "speed": speed}
     resolved = resolve_cosyvoice_prompt(prompt_wav)
     if resolved:
         payload["prompt_wav"] = resolved
