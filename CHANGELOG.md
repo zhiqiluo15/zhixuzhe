@@ -21,6 +21,40 @@
 
 ---
 
+## [2026-08-09] v1.3.2 开源守卫：push 自动拦截私有内容（pre-push 钩子）
+
+### 需求背景
+
+用户要求：**只有智序者开源部分能 push 到 GitHub**。此前靠 .gitignore 隔离私有文件，
+但无法防止误 `git add -f` 强推或手动误操作。需要一层强制机制兜底。
+
+### 新增
+
+- **Git pre-push 钩子** [.githooks/pre-push](file:///t:/zhixuzhe/.githooks/pre-push)
+  + [scripts/guard_push.py](file:///t:/zhixuzhe/scripts/guard_push.py)：
+  - push 前自动扫描本次推送涉及的文件（增量 diff remote..local）
+  - **私有路径拦截**：`memory/`、`logs/`、`.runtime/`、`.trae/`、`videos/`、
+    `.env` 系列、`assets/images/` 下图片素材
+  - **敏感内容拦截**：`sk-` 密钥（DeepSeek/OpenAI 格式）、`api_key=`/`token=` 等
+    带真实值的密钥赋值
+  - 命中 → 拒绝推送并输出违规清单 + 处理建议；未命中 → 正常放行
+- 本地启用：`git config core.hooksPath .githooks`（README 已登记启用说明）
+- 首次推送新分支时自动全量校验该分支全部提交涉及的文件
+
+### 验证
+
+- 合法推送：放行（exit 0）
+- 含 `sk-` 密钥的 commit：拦截（exit 1，报「含 sk- 密钥」）
+- 含 `videos/` 私有路径的 commit：拦截（exit 1，报「私有路径」）
+- 测试 commit 已回退，工作区干净
+
+### 说明
+
+- 钩子有 `--no-verify` 可绕过（git 原生逃生通道，README 已提示谨慎使用）
+- `core.hooksPath` 是本地配置，他人 clone 后需手动执行一次启用命令
+
+---
+
 ## [2026-08-09] v1.3.1 美术资源库 + 图片自动分类工具（classify_images）
 
 ### 需求背景

@@ -77,6 +77,23 @@ git add engine/ CHANGELOG.md README.md .gitignore
 git commit -m "feat: 新增 X 手脚 / 优化 Y 机制"
 ```
 
+### 开源守卫（push 自动拦截私有内容）
+
+仓库自带 **Git pre-push 钩子**（`.githooks/pre-push` + `scripts/guard_push.py`），
+push 前自动扫描本次推送涉及的文件，发现私有/敏感内容立即拒绝：
+
+- **私有路径**：`memory/`、`logs/`、`.runtime/`、`.trae/`、`videos/`、`.env`、图片素材等
+- **敏感内容**：`sk-` 密钥、`api_key=` 等带真实值的密钥赋值
+
+clone 后启用一次（必须）：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+误推私有文件被拦截时，用 `git rm --cached <文件>` 解除跟踪后重新提交；
+确需推送示例密钥等，可 `git push --no-verify`（谨慎使用）。
+
 ## 许可
 
 - 本项目代码：MIT License
