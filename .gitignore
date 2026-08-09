@@ -9,6 +9,11 @@ logs/
 # 抖音视频制作产物
 videos/
 
+# 美术资源库图片（本地私有，不进公共仓库）
+# 保留目录骨架（.gitkeep）与索引文档 catalog.md，图片本身全部隔离
+assets/images/*/
+!assets/images/*/.gitkeep
+
 # Trae IDE 内部文档（本地私有，不进公共仓库）
 .trae/
 
