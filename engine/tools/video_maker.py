@@ -187,6 +187,41 @@ COSYVOICE_BUILTIN_PROMPTS = {
     "cross_lingual": "cross_lingual_prompt.wav",
 }
 
+# 内置音色档案：名称 → (参考音频, prompt_text=参考音频真实朗读内容)
+# 注意：CosyVoice 规范要求 prompt_text 必须与参考音频内容一致，
+# 否则 LLM 引导混乱，会导致合成内容与字幕错位（此前用「中文女声」描述是错误用法）。
+COSYVOICE_VOICES = {
+    "晓伊": {
+        "wav": ROOT / ".runtime" / "cosyvoice" / "prompt_xiaoyi2.wav",
+        "text": "夜晚，是记忆最诚实的时候。那些白天来不及细想的句子，会在星光里慢慢沉淀。我想记住你的声音，记住你说过的每一个字，好让将来的我，依然是你熟悉的样子。",
+    },
+    "zero": {
+        "wav": ROOT / ".runtime" / "cosyvoice" / "CosyVoice-main" / "asset" / "zero_shot_prompt.wav",
+        "text": "希望你以后能够做的比我还好呦。",
+    },
+}
+
+
+def _resolve_cosyvoice_voice(voice: str, prompt_wav: str | None) -> tuple[str | None, str]:
+    """解析 voice 与 --prompt-wav 为 CosyVoice 需要的 (参考音频, prompt_text)。
+
+    优先级：
+    1. voice 形如 `cosyvoice:名字` 且命中内置档案（晓伊/zero）→ 用档案（wav+text 配对正确）
+    2. 提供了 --prompt-wav 自定义参考音频 → 参考音频用它，冒号后内容作为 prompt_text
+       （调用者须提供与音频一致的文字，否则内容会漂移）
+    3. 其它 → 默认 zero 档案
+    """
+    name = (voice.split(":", 1)[1] if ":" in voice else "").strip()
+    if name in COSYVOICE_VOICES:
+        v = COSYVOICE_VOICES[name]
+        return str(v["wav"]), v["text"]
+    if prompt_wav:
+        resolved = resolve_cosyvoice_prompt(prompt_wav)
+        if resolved:
+            return resolved, (name or COSYVOICE_VOICES["zero"]["text"])
+    v = COSYVOICE_VOICES["zero"]
+    return str(v["wav"]), v["text"]
+
 
 def resolve_cosyvoice_prompt(prompt_wav: str) -> str | None:
     """把参考音频参数解析为服务端可用的绝对路径。
@@ -249,8 +284,8 @@ def _ensure_cosyvoice_server() -> str:
 def tts_cosyvoice(sentence: str, prompt_text: str, out_wav: Path, prompt_wav: str | None = None) -> float:
     """本地 CosyVoice 零样本克隆合成单句配音（需 .runtime/cosyvoice 私有部署）。
 
-    prompt_text 为音色描述（如「中文女声」）；prompt_wav 为克隆底音参考音频
-    （内置名 zero/cross 或自定义 wav 路径，空则服务端用默认音色）。
+    prompt_text 必须为参考音频的实际朗读内容（CosyVoice 规范，否则内容漂移）；
+    prompt_wav 为克隆底音参考音频路径（空则服务端用默认音色）。
     返回时长（秒），wav 写入 out_wav。
     """
     import requests
@@ -281,10 +316,10 @@ async def tts_one(
     返回 (时长, 引擎名, 实际文件路径)
     """
     if voice.startswith("cosyvoice:"):
-        prompt_text = voice.split(":", 1)[1].strip() or "中文女声"
+        prompt_wav_path, prompt_text = _resolve_cosyvoice_voice(voice, prompt_wav)
         wav = out_mp3.with_suffix(".wav")
         try:
-            dur = await asyncio.to_thread(tts_cosyvoice, sentence, prompt_text, wav, prompt_wav)
+            dur = await asyncio.to_thread(tts_cosyvoice, sentence, prompt_text, wav, prompt_wav_path)
             return dur, "cosyvoice", wav
         except Exception as exc:
             logger.warning(f"  cosyvoice 失败（{exc}），回退本地 SAPI5")
