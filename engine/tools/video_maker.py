@@ -234,108 +234,84 @@ def render_web_frame(
     page_label: str | None = None,
     progress: float = 0.0,
 ) -> np.ndarray:
-    """电影感网页实景帧：全屏模糊背景 + 居中手机卡片 + 描边字幕。
+    """全屏网页实景帧：网页铺满全屏 + 底部渐变暗化 + 描边字幕。
 
     progress: 0~1，片段内进度（用于 Ken Burns 缩放，本函数仅渲染单帧；
              动态缩放由外层 _make_kb_clip 通过 resize+position 实现）。
     布局：
-      - 底层：网页截图铺满全屏 + 高斯模糊 + 深色蒙版（电影感底图）
-      - 中层：居中"手机屏幕"卡片（圆角+阴影+细白边），展示清晰网页
-      - 顶层：品牌角标 + 底部大字幕（描边）
+      - 底层：网页截图等比缩放覆盖全屏（清晰展示完整网页画面）
+      - 中层：底部渐变暗化蒙版（保证字幕可读性，不遮挡主要网页内容）
+      - 顶层：品牌角标 + 页面标签 + 底部大字幕（描边）
     """
     from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
     W, H = 1080, 1920
     web_pil = Image.fromarray(web_img).convert("RGB")
 
-    # === 底层：全屏模糊背景 ===
-    bg_scale = max(W / web_pil.width, H / web_pil.height) * 1.05
-    bg_img = web_pil.resize((int(web_pil.width * bg_scale), int(web_pil.height * bg_scale)), Image.LANCZOS)
+    # === 底层：网页铺满全屏（等比缩放 cover 模式，类似 CSS background-size: cover）===
+    scale = max(W / web_pil.width, H / web_pil.height)
+    nw, nh = int(web_pil.width * scale), int(web_pil.height * scale)
+    full_img = web_pil.resize((nw, nh), Image.LANCZOS)
     # 居中裁剪到 1080x1920
-    bw, bh = bg_img.size
-    left = (bw - W) // 2
-    top = (bh - H) // 2
-    bg_img = bg_img.crop((left, top, left + W, top + H))
-    bg_img = _blur_image(bg_img, radius=42)
-    # 深色蒙版（压暗背景突出前景）
-    darken = Image.new("RGBA", (W, H), (5, 8, 22, 165))
-    canvas = Image.alpha_composite(bg_img.convert("RGBA"), darken).convert("RGB")
+    left = (nw - W) // 2
+    top = (nh - H) // 2
+    canvas = full_img.crop((left, top, left + W, top + H)).convert("RGBA")
     draw = ImageDraw.Draw(canvas)
 
-    # === 中层：居中手机卡片 ===
-    card_w = 920
-    # 卡片位置：上半部分，顶部约 200px，高约 1080px（19.5:9 手机比例）
-    card_h = int(card_w * 19.5 / 9)  # ≈ 1994，但受屏幕高度限制
-    card_h = min(card_h, 1120)
-    card_x = (W - card_w) // 2
-    card_y = 220
-
-    # 卡片内容缩放（等比缩放覆盖卡片区域，顶部对齐）
-    c_scale = max(card_w / web_pil.width, card_h / web_pil.height)
-    cnw, cnh = int(web_pil.width * c_scale), int(web_pil.height * c_scale)
-    card_content = web_pil.resize((cnw, cnh), Image.LANCZOS)
-    cleft = (cnw - card_w) // 2
-    ctop = 0
-    card_content = card_content.crop((cleft, ctop, cleft + card_w, ctop + card_h))
-
-    # 卡片投影（大半径柔化阴影）
-    shadow = Image.new("RGBA", (card_w + 80, card_h + 80), (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shadow)
-    sd.rounded_rectangle([40, 40, card_w + 40, card_h + 40], radius=32, fill=(0, 0, 0, 140))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=28))
-    canvas.paste(shadow, (card_x - 40, card_y - 30), shadow)
-
-    # 圆角卡片遮罩
-    card_mask = Image.new("L", (card_w, card_h), 0)
-    cm = ImageDraw.Draw(card_mask)
-    cm.rounded_rectangle([0, 0, card_w - 1, card_h - 1], radius=28, fill=255)
-    # 卡片白边高光（顶部细亮线）
-    canvas.paste(card_content, (card_x, card_y), card_mask)
-    # 边框（细白边，增加质感）
-    draw.rounded_rectangle(
-        [card_x, card_y, card_x + card_w - 1, card_y + card_h - 1],
-        radius=28, outline=(255, 255, 255, 40), width=2,
-    )
-    # 卡片顶部高光条（模拟玻璃质感）
-    hl = Image.new("RGBA", (card_w - 56, 2), (255, 255, 255, 35))
-    canvas.paste(hl, (card_x + 28, card_y + 8), hl)
+    # === 中层：底部渐变暗化（字幕区域可读，不遮挡上方网页内容）===
+    # 从画面约 55% 高度开始渐变压暗，到底部完全暗化
+    grad_h = H
+    grad = Image.new("L", (1, grad_h), 0)
+    for y in range(grad_h):
+        # 前 55% 完全透明，后 45% 从 0 渐变到 180（暗化强度）
+        if y < H * 0.55:
+            alpha = 0
+        else:
+            p = (y - H * 0.55) / (H * 0.45)
+            alpha = int(180 * (p ** 1.5))  # 缓入曲线，暗化更自然
+        grad.putpixel((0, y), alpha)
+    grad = grad.resize((W, grad_h))
+    dark_overlay = Image.new("RGBA", (W, H), (8, 10, 25, 0))
+    dark_overlay.putalpha(grad)
+    canvas = Image.alpha_composite(canvas, dark_overlay)
+    draw = ImageDraw.Draw(canvas)
 
     # === 顶层文字 ===
     title_font = ImageFont.truetype(font_path, 44)
-    body_font = ImageFont.truetype(font_path, 62)
+    body_font = ImageFont.truetype(font_path, 64)
     foot_font = ImageFont.truetype(font_path, 32)
 
-    # 顶部品牌标识（左上角 ZX logo + 名称，更有品牌感）
+    # 顶部品牌标识（左上角 ZX logo + 名称，半透明背景不遮挡网页）
     brand = "Z · 智序者"
     bw_text = draw.textlength(brand, font=foot_font)
-    draw.rounded_rectangle([30, 50, 30 + bw_text + 32, 92], radius=8, fill=(94, 234, 212, 50))
+    draw.rounded_rectangle([30, 50, 30 + bw_text + 32, 92], radius=8, fill=(0, 0, 0, 100))
     draw.text((46, 57), brand, font=foot_font, fill=(94, 234, 212))
 
-    # 页面标签（卡片右上角小圆标）
+    # 页面标签（右下角小圆标，标识当前展示的页面）
     if page_label:
         label = page_label
         lw = draw.textlength(label, font=foot_font)
         draw.rounded_rectangle(
-            [card_x + card_w - lw - 34, card_y + card_h - 58, card_x + card_w - 14, card_y + card_h - 20],
+            [W - lw - 54, H - 150, W - 20, H - 112],
             radius=12, fill=(0, 0, 0, 130),
         )
-        draw.text((card_x + card_w - lw - 24, card_y + card_h - 52), label, font=foot_font, fill=(220, 230, 245))
+        draw.text((W - lw - 42, H - 144), label, font=foot_font, fill=(220, 230, 245))
 
-    # 底部字幕（卡片下方，描边增强可读性）
-    lines = split_lines(draw, subtitle, body_font, W - 120)[:3]
-    line_h = 90
+    # 底部字幕（居中，描边+半透明底衬增强可读性）
+    lines = split_lines(draw, subtitle, body_font, W - 100)[:3]
+    line_h = 94
     total_h = len(lines) * line_h
-    y = card_y + card_h + 70
-    # 字幕底衬（半透明黑条，增强可读性）
-    pad_x, pad_y = 50, 24
+    y = H - total_h - 220
+    # 字幕底衬（半透明圆角矩形）
+    pad_x, pad_y = 44, 22
     text_max_w = max(draw.textlength(l, font=body_font) for l in lines) if lines else 0
     bg_rect_x = (W - text_max_w) // 2 - pad_x
     bg_rect_y = y - pad_y
     bg_rect_w = text_max_w + pad_x * 2
-    bg_rect_h = total_h + pad_y * 2 - 10
+    bg_rect_h = total_h + pad_y * 2 - 8
     draw.rounded_rectangle(
         [bg_rect_x, bg_rect_y, bg_rect_x + bg_rect_w, bg_rect_y + bg_rect_h],
-        radius=16, fill=(0, 0, 0, 110),
+        radius=18, fill=(0, 0, 0, 130),
     )
     for line in lines:
         lw = draw.textlength(line, font=body_font)
@@ -346,9 +322,9 @@ def render_web_frame(
     # 底部标语
     foot = "开源 · 自进化 · 私有记忆"
     fw = draw.textlength(foot, font=foot_font)
-    draw.text(((W - fw) / 2, H - 90), foot, font=foot_font, fill=(180, 195, 220))
+    draw.text(((W - fw) / 2, H - 80), foot, font=foot_font, fill=(200, 210, 230))
 
-    return np.array(canvas)
+    return np.array(canvas.convert("RGB"))
 
 
 def make_gradient_bg() -> np.ndarray:
