@@ -42,6 +42,11 @@ def create_agent(project_root: Path) -> Agent:
         from engine.tools.video_maker import make_douyin_video
         return make_douyin_video(text=text, voice=voice)
 
+    def classify_images(inbox: str = "", dry_run: bool = False) -> str:
+        """懒导入 image_librarian（依赖 torch/open_clip，避免拖慢 Agent 启动）"""
+        from engine.tools.image_librarian import classify_and_archive
+        return classify_and_archive(inbox=inbox, dry_run=dry_run)
+
     from engine.tools.shell import run_shell
     from engine.tools.file_io import read_file, write_file
     from engine.tools.web_fetch import web_fetch
@@ -70,6 +75,29 @@ def create_agent(project_root: Path) -> Agent:
                 "voice": {
                     "type": "string",
                     "description": "edge-tts 音色，如 zh-CN-XiaoxiaoNeural（默认）/zh-CN-YunxiNeural",
+                },
+            },
+        },
+    ))
+    tools.register(Tool(
+        name="classify_images",
+        description=(
+            "美术资源库自动分类：扫描 assets/images/_inbox 里的图片，按图片类型"
+            "（照片/插画/截图/图标/其他）自动归档到对应目录，并更新资源索引 catalog.md。"
+            "参数 inbox 为入库目录（留空用默认 _inbox），dry_run 为只预览不移动。"
+            "首次调用需下载多语言 CLIP 模型（约 600MB，走国内 HF 镜像）。"
+        ),
+        func=classify_images,
+        parameters={
+            "type": "object",
+            "properties": {
+                "inbox": {
+                    "type": "string",
+                    "description": "入库目录路径，留空用默认 assets/images/_inbox",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "True 时只预览分类结果，不移动文件",
                 },
             },
         },

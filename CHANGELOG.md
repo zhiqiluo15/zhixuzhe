@@ -21,6 +21,50 @@
 
 ---
 
+## [2026-08-09] v1.3.1 美术资源库 + 图片自动分类工具（classify_images）
+
+### 需求背景
+
+用户要建一个「美术资源库」文件夹存放图片，并希望按市面素材库的分类逻辑做自动分类。
+经确认：本地 CLIP 智能分类 + 按图片类型（照片/插画/截图/图标/其他）归档。
+
+### 新增
+
+- **美术资源库** `assets/images/`：
+  - `_inbox/` 入库区（新图片放这里）+ 类型子目录（照片/插画/截图/图标/其他）
+  - `catalog.md` 自动生成的资源索引
+- 新工具 [image_librarian.py](file:///t:/zhixuzhe/engine/tools/image_librarian.py)（注册为 classify_images）：
+  - **层级分类策略**（每步二分类，准确率高）：
+    1. 规则预判 → 图标（透明通道 / 极小尺寸 / 色彩极少 / 小尺寸扁平图）
+    2. CLIP 阶段一：截图 vs 其它（截图概率 ≥ 0.6 → 截图）
+    3. CLIP 阶段二：照片 vs 插画
+    4. 任一阶段置信度 < 0.45 → 其他
+  - 多语言 CLIP（xlm-roberta-base-ViT-B-32）支持中文 prompt，首次调用自动下载
+    权重（约 600MB，走国内 HF 镜像 hf-mirror.com）
+  - `--dry-run` 只预览不移动；`--no-clip` 纯规则兜底；CLIP 加载失败自动退化规则
+  - SVG 按文件名智能归类（icon/logo → 图标，其余 → 插画）
+- [factory.py](file:///t:/zhixuzhe/engine/factory.py) 注册第 13 个工具 classify_images（懒导入）
+- requirements.txt 补充可选依赖组：torch + open_clip_torch（国内源注释）
+
+### 踩坑（重要）
+
+1. **transformers 5.x 移除了 ChineseCLIPModel**：不能用 transformers 加载中文 CLIP，
+   改用 open_clip 官方模型 `xlm-roberta-base-ViT-B-32`（多语言，支持中文 prompt）
+2. **CLIP 4 分类易被「图标」标签吸引**（插画/照片都倾向图标）：改为层级二分类后
+   截图识别 0.91~1.00、照片/插画 0.72~0.95，准确率显著提升
+3. **PyPI 直连慢**：torch/transformers 安装需走清华镜像
+   `-i https://pypi.tuna.tsinghua.edu.cn/simple`；模型下载走
+   `HF_ENDPOINT=https://hf-mirror.com`
+4. **Python 3.14 + torch**：2.13.0+cpu wheel 已支持，无需降级 Python
+
+### 验证
+
+- 5 张测试图（截图/图标/透明图标/插画/照片）dry-run 分类全部正确
+- 实际归档 + catalog.md 索引生成正常，测试图已清理
+- 全部单元测试通过（105/105）
+
+---
+
 ## [2026-08-09] v1.3.0 宣传视频加入智序者网页实景画面
 
 ### 需求背景
