@@ -1,44 +1,20 @@
-#!/usr/bin/env python3
-"""智序者 · Git pre-push 钩子：调用开源守卫，拦截私有内容推送。
+#!/bin/sh
+# 智序者 · Git pre-push 钩子：调用开源守卫，拦截私有内容推送
+# 由 git push 自动执行；守卫逻辑在 scripts/guard_push.py
+# 注意：Windows 上无 python3 命令，这里显式用项目 .venv 的 Python
 
-作为 .githooks/pre-push 使用（无 .py 后缀也可，git 用解释器运行）。
+ROOT=$(git rev-parse --show-toplevel)
+GUARD="$ROOT/scripts/guard_push.py"
+PY="$ROOT/.venv/Scripts/python.exe"
 
-用法（在仓库根目录执行一次）：
-  git config core.hooksPath .githooks
+if [ -x "$PY" ]; then
+    exec "$PY" "$GUARD" "$@"
+fi
 
-逻辑：
-  - 解析 stdin 的推送计划（<local_ref> <local_oid> <remote_ref> <remote_oid>）
-  - 把 push 请求转给 scripts/guard_push.py 校验
-"""
+# 兜底：系统 python / py
+if command -v python >/dev/null 2>&1; then
+    exec python "$GUARD" "$@"
+fi
 
-import subprocess
-import sys
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parent.parent
-GUARD = ROOT / "scripts" / "guard_push.py"
-
-
-def main() -> int:
-    # 读取 stdin 推送计划
-    stdin_data = sys.stdin.read()
-
-    if not GUARD.exists():
-        print("⚠️  未找到开源守卫脚本 scripts/guard_push.py，本次推送未校验")
-        return 1
-
-    proc = subprocess.run(
-        [sys.executable, str(GUARD), *sys.argv[1:]],
-        input=stdin_data,
-        capture_output=True,
-        text=True,
-    )
-    if proc.stdout:
-        print(proc.stdout)
-    if proc.stderr:
-        print(proc.stderr, file=sys.stderr)
-    return proc.returncode
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+echo "⚠️  开源守卫无法运行（未找到 Python），拒绝推送。请先安装 .venv 或 python。"
+exit 1
