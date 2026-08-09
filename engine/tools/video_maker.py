@@ -229,48 +229,75 @@ def render_web_frame(
     progress: float = 0.0,
     cta_url: str = "",
 ) -> np.ndarray:
-    """全屏网页实景帧：网页铺满全屏 + 底部渐变暗化 + 描边字幕。
+    """全屏网页实景帧：模糊背景铺底 + 清晰截图完整居中 + 描边字幕。
 
     progress: 0~1，片段内进度（用于 Ken Burns 缩放，本函数仅渲染单帧；
              动态缩放由外层 _make_kb_clip 通过 resize+position 实现）。
     cta_url：可选，底部固定显示的 CTA 链接（终端/代码风格绿色字），
              用于引导观众访问 GitHub 等地址。
     布局：
-      - 底层：网页截图等比缩放覆盖全屏（清晰展示完整网页画面）
-      - 中层：底部渐变暗化蒙版（保证字幕可读性，不遮挡主要网页内容）
-      - 顶层：品牌角标 + 页面标签 + 底部大字幕（描边）+ CTA URL
+      - 底层：同图 cover 铺满 + 高斯模糊+压暗，填满所有空白提供氛围
+      - 中层：网页截图 contain 等比缩放居中完整显示（所有细节可见，带圆角+投影）
+      - 顶层：品牌角标 + 页面标签（贴截图右下角）+ 底部描边字幕（暗化区）+ CTA URL
     """
     from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
     W, H = 1080, 1920
     web_pil = Image.fromarray(web_img).convert("RGB")
 
-    # === 底层：网页铺满全屏（等比缩放 cover 模式，类似 CSS background-size: cover）===
-    scale = max(W / web_pil.width, H / web_pil.height)
-    nw, nh = int(web_pil.width * scale), int(web_pil.height * scale)
-    full_img = web_pil.resize((nw, nh), Image.LANCZOS)
-    # 居中裁剪到 1080x1920
-    left = (nw - W) // 2
-    top = (nh - H) // 2
-    canvas = full_img.crop((left, top, left + W, top + H)).convert("RGBA")
+    # === 底层：模糊背景（同图 cover 铺满 + 高斯模糊，填满所有空白提供氛围）===
+    # 横屏桌面截图（16:9 / 16:10）放到竖屏（9:16）会有大量留白，
+    # 用同一截图的模糊版本铺满作为底，既填满全屏又不突兀
+    scale_cover = max(W / web_pil.width, H / web_pil.height)
+    nw_c, nh_c = int(web_pil.width * scale_cover), int(web_pil.height * scale_cover)
+    blur_layer = web_pil.resize((nw_c, nh_c), Image.LANCZOS)
+    left_c = (nw_c - W) // 2
+    top_c = (nh_c - H) // 2
+    blur_layer = blur_layer.crop((left_c, top_c, left_c + W, top_c + H))
+    blur_layer = blur_layer.filter(ImageFilter.GaussianBlur(radius=40))
+    # 压暗模糊背景（避免和清晰前景抢注意力）
+    darken = Image.new("RGBA", (W, H), (0, 0, 0, 90))
+    canvas = Image.alpha_composite(blur_layer.convert("RGBA"), darken)
+
+    # === 中层：清晰完整图（contain 模式，等比缩放居中，所有细节完整可见）===
+    # 宽度占满画布（1080px），高度按比例自适应——横屏图宽满高自然，竖屏图高满宽自然
+    # 垂直偏上放置（顶部留 110px 给品牌角标）
+    scale_contain = W / web_pil.width  # 宽度优先：宽满屏，高按比例
+    nw_s, nh_s = int(web_pil.width * scale_contain), int(web_pil.height * scale_contain)
+    # 如果高度超出可用区域（截图本身很长），则改为高度限制
+    max_h = H - 360  # 底部留 360px 给字幕+CTA
+    if nh_s > max_h:
+        scale_contain = max_h / web_pil.height
+        nw_s, nh_s = int(web_pil.width * scale_contain), max_h
+    sharp_layer = web_pil.resize((nw_s, nh_s), Image.LANCZOS)
+    # 水平居中，垂直偏上
+    paste_x = (W - nw_s) // 2
+    paste_y = 110  # 顶部留出品牌角标空间
+    # 给清晰图加投影（浮起感，与模糊背景分层）
+    shadow = Image.new("RGBA", (nw_s + 40, nh_s + 40), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow)
+    sd.rounded_rectangle([20, 20, nw_s + 20, nh_s + 20], radius=12, fill=(0, 0, 0, 120))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=18))
+    canvas.paste(shadow, (paste_x - 20, paste_y - 10), shadow)
+    # 贴清晰图（圆角）
+    sharp_rgba = sharp_layer.convert("RGBA")
+    mask = Image.new("L", (nw_s, nh_s), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, nw_s, nh_s], radius=12, fill=255)
+    canvas.paste(sharp_rgba, (paste_x, paste_y), mask)
+
     draw = ImageDraw.Draw(canvas)
 
-    # === 中层：底部渐变暗化（字幕区域可读，不遮挡上方网页内容）===
-    # 从画面约 55% 高度开始渐变压暗，到底部完全暗化
-    grad_h = H
-    grad = Image.new("L", (1, grad_h), 0)
-    for y in range(grad_h):
-        # 前 55% 完全透明，后 45% 从 0 渐变到 180（暗化强度）
-        if y < H * 0.55:
-            alpha = 0
-        else:
-            p = (y - H * 0.55) / (H * 0.45)
-            alpha = int(180 * (p ** 1.5))  # 缓入曲线，暗化更自然
-        grad.putpixel((0, y), alpha)
-    grad = grad.resize((W, grad_h))
-    dark_overlay = Image.new("RGBA", (W, H), (8, 10, 25, 0))
-    dark_overlay.putalpha(grad)
-    canvas = Image.alpha_composite(canvas, dark_overlay)
+    # === 中层：字幕区纯色覆盖 ===
+    # 清晰图下方的模糊背景会隐约透出网页文字，直接用纯色深色盖住字幕区，
+    # 顶部 30px 渐变过渡避免硬边，保证字幕区是干净的深色背景
+    sharp_bottom = paste_y + nh_s
+    subtitle_bg_top = sharp_bottom - 30
+    # 字幕区纯色底
+    draw.rectangle([0, sharp_bottom, W, H], fill=(10, 12, 28))
+    # 顶部渐变过渡（30px 半透明条，从透明到纯色，柔和衔接）
+    for y in range(30):
+        alpha = int(255 * ((y + 1) / 30))
+        draw.line([(0, subtitle_bg_top + y), (W, subtitle_bg_top + y)], fill=(10, 12, 28, alpha))
     draw = ImageDraw.Draw(canvas)
 
     # === 顶层文字 ===
@@ -284,21 +311,28 @@ def render_web_frame(
     draw.rounded_rectangle([30, 50, 30 + bw_text + 32, 92], radius=8, fill=(0, 0, 0, 100))
     draw.text((46, 57), brand, font=foot_font, fill=(94, 234, 212))
 
-    # 页面标签（右下角小圆标，标识当前展示的页面）
+    # 页面标签（贴在清晰截图右下角，标识当前展示的页面）
     if page_label:
         label = page_label
         lw = draw.textlength(label, font=foot_font)
+        label_right = paste_x + nw_s - 16
+        label_bottom = sharp_bottom - 14
+        label_x = label_right - lw - 24
+        label_y = label_bottom - 36
         draw.rounded_rectangle(
-            [W - lw - 54, H - 150, W - 20, H - 112],
-            radius=12, fill=(0, 0, 0, 130),
+            [label_x, label_y, label_right, label_y + 38],
+            radius=10, fill=(0, 0, 0, 150),
         )
-        draw.text((W - lw - 42, H - 144), label, font=foot_font, fill=(220, 230, 245))
+        draw.text((label_x + 12, label_y + 5), label, font=foot_font, fill=(220, 230, 245))
 
-    # 底部字幕（居中，描边+半透明底衬增强可读性）
+    # 底部字幕（居中，描边+半透明底衬增强可读性，位于截图下方暗化区域）
     lines = split_lines(draw, subtitle, body_font, W - 100)[:3]
     line_h = 94
     total_h = len(lines) * line_h
-    y = H - total_h - 220
+    # 字幕放在渐变暗化区域中间偏上
+    subtitle_area_top = sharp_bottom + 80
+    subtitle_area_bottom = H - (130 if cta_url else 200)
+    y = subtitle_area_top + max(0, (subtitle_area_bottom - subtitle_area_top - total_h) // 2)
     # 字幕底衬（半透明圆角矩形）
     pad_x, pad_y = 44, 22
     text_max_w = max(draw.textlength(l, font=body_font) for l in lines) if lines else 0
@@ -308,7 +342,7 @@ def render_web_frame(
     bg_rect_h = total_h + pad_y * 2 - 8
     draw.rounded_rectangle(
         [bg_rect_x, bg_rect_y, bg_rect_x + bg_rect_w, bg_rect_y + bg_rect_h],
-        radius=18, fill=(0, 0, 0, 130),
+        radius=18, fill=(0, 0, 0, 160),
     )
     for line in lines:
         lw = draw.textlength(line, font=body_font)
