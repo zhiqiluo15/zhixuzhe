@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智序者 - 基因层 v__ZX_VERSION__</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #03030d;
+  color: #d0d0d0;
+  min-height: 100vh;
+  padding: 0 20px 40px;
+}
+
+/* ── 顶部栏 ── */
+.topbar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 18px 0; border-bottom: 1px solid rgba(167,139,250,0.08);
+  margin-bottom: 24px; flex-wrap: wrap;
+}
+.topbar a {
+  color: #a78bfa; text-decoration: none; font-size: 13px;
+  padding: 6px 14px; border-radius: 7px;
+  border: 1px solid rgba(167,139,250,0.15);
+  transition: all 0.2s;
+}
+.topbar a:hover { background: rgba(167,139,250,0.12); }
+.topbar h1 {
+  font-size: 20px; font-weight: 600;
+  background: linear-gradient(135deg, #a78bfa, #60a5fa);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.topbar .badge {
+  font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  background: rgba(167,139,250,0.12); color: #8b83ba;
+}
+
+/* ── 概览卡片 ── */
+.stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px; margin-bottom: 24px;
+}
+.stat-card {
+  background: rgba(16,16,32,0.6); border: 1px solid rgba(167,139,250,0.08);
+  border-radius: 12px; padding: 16px 20px; text-align: center;
+}
+.stat-card .num {
+  font-size: 26px; font-weight: 700;
+  background: linear-gradient(135deg, #a78bfa, #60a5fa);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.stat-card .label { font-size: 11px; color: #666; margin-top: 4px; }
+
+/* ── 布局 ── */
+.section-title {
+  font-size: 15px; color: #c4b5fd; font-weight: 600;
+  margin: 28px 0 14px; display: flex; align-items: center; gap: 8px;
+}
+.panel {
+  background: rgba(16,16,32,0.6); border: 1px solid rgba(167,139,250,0.08);
+  border-radius: 14px; padding: 18px 20px;
+}
+
+/* ── 目录树 ── */
+.tree-root { display: flex; flex-direction: column; }
+.tree-node { margin-left: 18px; border-left: 1px solid rgba(167,139,250,0.08); padding-left: 10px; }
+.tree-dir {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px; border-radius: 6px; cursor: pointer;
+  font-size: 13px; color: #c4b5fd; transition: background 0.15s;
+}
+.tree-dir:hover { background: rgba(167,139,250,0.08); }
+.tree-dir .arrow { font-size: 10px; color: #666; width: 12px; display: inline-block; transition: transform 0.15s; }
+.tree-dir.open .arrow { transform: rotate(90deg); }
+.tree-file {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-radius: 6px; cursor: pointer;
+  font-size: 12.5px; color: #aaa; transition: all 0.15s;
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+.tree-file:hover { background: rgba(167,139,250,0.08); color: #ddd; }
+.tree-file .fsize { margin-left: auto; font-size: 10px; color: #555; }
+.ext-py { color: #60a5fa; } .ext-md { color: #a78bfa; } .ext-html { color: #f87171; }
+.ext-yaml { color: #d4a853; } .ext-json { color: #34d399; } .ext-bat, .ext-ps1 { color: #94a3b8; }
+.ext-js, .ext-css { color: #fbbf24; }
+
+/* ── 进化史 ── */
+.changelog-wrap {
+  display: grid; grid-template-columns: 180px 1fr; gap: 18px;
+}
+.changelog-nav {
+  position: sticky; top: 20px; align-self: start;
+  max-height: 70vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px;
+  border-right: 1px solid rgba(167,139,250,0.08); padding-right: 12px;
+}
+.changelog-nav a {
+  font-size: 11.5px; color: #777; text-decoration: none;
+  padding: 5px 8px; border-radius: 6px; transition: all 0.15s;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.changelog-nav a:hover { background: rgba(167,139,250,0.08); color: #c4b5fd; }
+.changelog-body { font-size: 13px; line-height: 1.75; color: #bbb; min-width: 0; }
+.changelog-body h1 { font-size: 18px; color: #d0d0d0; margin-bottom: 12px; }
+.changelog-body h2 {
+  font-size: 16px; color: #c4b5fd; margin: 26px 0 10px; padding-top: 16px;
+  border-top: 1px solid rgba(167,139,250,0.08);
+  scroll-margin-top: 20px;
+}
+.changelog-body h2:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+.changelog-body h3 { font-size: 14px; color: #a78bfa; margin: 16px 0 8px; }
+.changelog-body p { margin-bottom: 10px; }
+.changelog-body ul, .changelog-body ol { margin: 8px 0 12px 20px; }
+.changelog-body li { margin-bottom: 4px; }
+.changelog-body code {
+  background: rgba(167,139,250,0.08); padding: 1px 6px; border-radius: 4px;
+  font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; color: #a78bfa;
+}
+.changelog-body pre {
+  background: rgba(0,0,0,0.3); border: 1px solid rgba(167,139,250,0.06);
+  border-radius: 8px; padding: 12px 16px; overflow-x: auto; margin: 10px 0;
+}
+.changelog-body pre code { background: none; padding: 0; color: #9ca3af; }
+.changelog-body blockquote {
+  border-left: 3px solid rgba(167,139,250,0.3);
+  padding-left: 12px; margin: 10px 0; color: #888;
+}
+.changelog-body table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12px; }
+.changelog-body th, .changelog-body td { border: 1px solid rgba(167,139,250,0.1); padding: 6px 10px; text-align: left; }
+.changelog-body th { background: rgba(167,139,250,0.06); color: #c4b5fd; }
+.changelog-body strong { color: #d0d0d0; }
+.changelog-body hr { border: none; border-top: 1px solid rgba(167,139,250,0.08); margin: 16px 0; }
+.changelog-body a { color: #60a5fa; }
+
+/* ── 空状态 ── */
+.empty-state { text-align: center; padding: 50px 20px; color: #555; font-size: 13px; }
+
+/* ── 弹窗 ── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.75); z-index: 100;
+  justify-content: center; align-items: flex-start;
+  padding: 40px 20px; overflow-y: auto;
+}
+.modal-overlay.active { display: flex; }
+.modal {
+  background: #0d0d1a; border: 1px solid rgba(167,139,250,0.12);
+  border-radius: 14px; width: 100%; max-width: 900px;
+  max-height: 85vh; display: flex; flex-direction: column;
+}
+.modal-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 24px; border-bottom: 1px solid rgba(167,139,250,0.08);
+  flex-shrink: 0;
+}
+.modal-header h2 {
+  font-size: 14px; font-weight: 600; color: #c4b5fd; flex: 1;
+  font-family: "Cascadia Code", Consolas, monospace; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.modal-close {
+  background: none; border: none; color: #666; font-size: 20px;
+  cursor: pointer; padding: 4px 8px; border-radius: 6px; line-height: 1;
+}
+.modal-close:hover { background: rgba(255,255,255,0.06); color: #aaa; }
+.modal-body {
+  padding: 0; overflow: auto; flex: 1;
+}
+.modal-body pre {
+  margin: 0; padding: 18px 24px; font-size: 12px; line-height: 1.6;
+  font-family: "Cascadia Code", Consolas, monospace; color: #c8c8d4;
+  white-space: pre; tab-size: 4;
+}
+.modal-body .md { padding: 20px 24px; font-size: 13px; line-height: 1.75; color: #bbb; }
+.modal-body .md h1 { font-size: 18px; color: #d0d0d0; margin-bottom: 12px; }
+.modal-body .md h2 { font-size: 16px; color: #c4b5fd; margin: 20px 0 10px; }
+.modal-body .md h3 { font-size: 14px; color: #a78bfa; margin: 16px 0 8px; }
+.modal-body .md p { margin-bottom: 10px; }
+.modal-body .md ul, .modal-body .md ol { margin: 8px 0 12px 20px; }
+.modal-body .md li { margin-bottom: 4px; }
+.modal-body .md code {
+  background: rgba(167,139,250,0.08); padding: 1px 6px; border-radius: 4px;
+  font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; color: #a78bfa;
+}
+.modal-body .md pre {
+  background: rgba(0,0,0,0.3); border: 1px solid rgba(167,139,250,0.06);
+  border-radius: 8px; padding: 12px 16px; overflow-x: auto; margin: 10px 0;
+}
+.modal-body .md pre code { background: none; padding: 0; color: #9ca3af; }
+.modal-body .md table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12px; }
+.modal-body .md th, .modal-body .md td { border: 1px solid rgba(167,139,250,0.1); padding: 6px 10px; text-align: left; }
+.modal-body .md th { background: rgba(167,139,250,0.06); color: #c4b5fd; }
+.modal-body .md strong { color: #d0d0d0; }
+.modal-body .md blockquote { border-left: 3px solid rgba(167,139,250,0.3); padding-left: 12px; margin: 10px 0; color: #888; }
+.modal-body .md a { color: #60a5fa; }
+.modal-meta {
+  font-size: 11px; color: #555; padding: 10px 24px;
+  border-top: 1px solid rgba(167,139,250,0.06); flex-shrink: 0;
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>智序者 zhixuzhe</h1>
+  <span class="badge">v__ZX_VERSION__</span>
+  <a href="/">← 返回对话</a>
+  <a href="/memory">🧠 记忆</a>
+  <a href="/knowledge">📚 知识库</a>
+  <a href="/profile">学习面板</a>
+</div>
+
+<!-- 概览 -->
+<div class="stats" id="stats">
+  <div class="stat-card"><div class="num">—</div><div class="label">版本</div></div>
+  <div class="stat-card"><div class="num">—</div><div class="label">工具</div></div>
+  <div class="stat-card"><div class="num">—</div><div class="label">技能</div></div>
+  <div class="stat-card"><div class="num">—</div><div class="label">基因文件</div></div>
+</div>
+
+<!-- 目录树 -->
+<div class="section-title">📂 基因层结构（engine/ + 根目录基因文件）</div>
+<div class="panel">
+  <div class="tree-root" id="tree-root">
+    <div class="empty-state">加载中...</div>
+  </div>
+</div>
+
+<!-- 进化史 -->
+<div class="section-title">📜 进化史（CHANGELOG）</div>
+<div class="panel">
+  <div class="changelog-wrap">
+    <div class="changelog-nav" id="changelog-nav"></div>
+    <div class="changelog-body md" id="changelog-body">
+      <div class="empty-state">加载中...</div>
+    </div>
+  </div>
+</div>
+
+<!-- 文件查看弹窗 -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h2 id="modal-title"></h2>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-meta" id="modal-meta"></div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════
+//  概览
+// ════════════════════════════════════
+async function loadOverview(fileCount) {
+  try {
+    const resp = await fetch('/genome/overview');
+    const d = await resp.json();
+    const nums = [d.version || '—', d.tools || '—', d.skills || '—', fileCount];
+    document.querySelectorAll('#stats .num').forEach((el, i) => { el.textContent = nums[i]; });
+  } catch(e) { /* 忽略，保留占位 */ }
+}
+
+// ════════════════════════════════════
+//  目录树
+// ════════════════════════════════════
+const EXT_ICON = {
+  py: '🐍', md: '📝', html: '🌐', yaml: '⚙️', yml: '⚙️', json: '📦', jsonl: '📦',
+  bat: '🖥️', ps1: '🖥️', js: '🟨', css: '🎨', toml: '📋', txt: '📄',
+  gitignore: '🔒', 'env.example': '🔑'
+};
+
+async function loadTree() {
+  try {
+    const resp = await fetch('/genome/tree');
+    const d = await resp.json();
+    document.getElementById('tree-root').innerHTML = renderNodes(d.tree || [], '');
+    loadOverview(d.files);
+  } catch(e) {
+    document.getElementById('tree-root').innerHTML =
+      '<div class="empty-state" style="color:#f87171">加载失败: ' + esc(String(e)) + '</div>';
+  }
+}
+
+function renderNodes(nodes, indentPath) {
+  let html = '';
+  for (const n of nodes) {
+    if (n.type === 'dir') {
+      html += `
+        <div>
+          <div class="tree-dir" onclick="toggleDir(this)">
+            <span class="arrow">▶</span>📁 ${esc(n.name)}
+          </div>
+          <div class="tree-node" style="display:none">${renderNodes(n.children || [], n.path)}</div>
+        </div>`;
+    } else {
+      const cls = 'ext-' + (n.ext || '');
+      html += `
+        <div class="tree-file ${cls}" onclick="viewFile('${escAttr(n.path)}')">
+          <span>${EXT_ICON[n.ext] || '📄'}</span>${esc(n.name)}
+          <span class="fsize">${fmtSize(n.size)}</span>
+        </div>`;
+    }
+  }
+  return html;
+}
+
+function toggleDir(el) {
+  el.classList.toggle('open');
+  const child = el.nextElementSibling;
+  if (child) child.style.display = child.style.display === 'none' ? '' : 'none';
+}
+
+function fmtSize(bytes) {
+  if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+  if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return bytes + ' B';
+}
+
+// ════════════════════════════════════
+//  文件查看
+// ════════════════════════════════════
+async function viewFile(path) {
+  const modal = document.getElementById('modal-overlay');
+  document.getElementById('modal-title').textContent = path;
+  document.getElementById('modal-body').innerHTML =
+    '<div style="color:#555;text-align:center;padding:20px">加载中...</div>';
+  document.getElementById('modal-meta').textContent = '';
+  modal.classList.add('active');
+
+  try {
+    const resp = await fetch('/genome/file?path=' + encodeURIComponent(path));
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const d = await resp.json();
+    const meta = d.path + ' · ' + fmtSize(d.size);
+    if (d.binary) {
+      document.getElementById('modal-body').innerHTML =
+        '<div style="color:#555;text-align:center;padding:30px">二进制文件，无法预览</div>';
+    } else if (d.path.endsWith('.md')) {
+      document.getElementById('modal-body').innerHTML =
+        '<div class="md">' + renderMarkdown(d.content) + '</div>';
+    } else {
+      document.getElementById('modal-body').innerHTML =
+        '<pre>' + esc(d.content) + '</pre>';
+    }
+    document.getElementById('modal-meta').textContent = meta;
+  } catch(e) {
+    document.getElementById('modal-body').innerHTML =
+      '<div style="color:#f87171;padding:20px">加载失败: ' + esc(String(e)) + '</div>';
+  }
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('modal-overlay')) return;
+  document.getElementById('modal-overlay').classList.remove('active');
+}
+
+// ════════════════════════════════════
+//  进化史（CHANGELOG）
+// ════════════════════════════════════
+async function loadChangelog() {
+  try {
+    const resp = await fetch('/genome/changelog');
+    const d = await resp.json();
+    const html = renderMarkdownWithAnchors(d.content || '');
+    document.getElementById('changelog-body').innerHTML = html.body;
+    document.getElementById('changelog-nav').innerHTML =
+      html.versions.map(v =>
+        '<a href="#' + v.id + '" onclick="scrollToVersion(event,\'' + v.id + '\')">' + esc(v.label) + '</a>'
+      ).join('') || '<div style="color:#555;font-size:11px">无版本记录</div>';
+  } catch(e) {
+    document.getElementById('changelog-body').innerHTML =
+      '<div class="empty-state" style="color:#f87171">加载失败: ' + esc(String(e)) + '</div>';
+  }
+}
+
+function scrollToVersion(e, id) {
+  e.preventDefault();
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// 渲染 CHANGELOG，并给版本标题加锚点
+function renderMarkdownWithAnchors(md) {
+  const versions = [];
+  let lines = md.split('\n');
+  let html = '';
+  let inCode = false;
+  let codeLines = [];
+  let inList = false;
+  let listType = '';
+
+  function closeList() {
+    if (inList) { html += '</' + listType + '>'; inList = false; }
+  }
+
+  for (let line of lines) {
+    if (line.startsWith('```')) {
+      if (inCode) {
+        html += '<pre><code>' + esc(codeLines.join('\n')) + '</code></pre>';
+        codeLines = []; inCode = false;
+      } else { closeList(); inCode = true; }
+      continue;
+    }
+    if (inCode) { codeLines.push(line); continue; }
+    if (!line.trim()) { closeList(); html += '\n'; continue; }
+
+    if (/^---+$/.test(line.trim())) { closeList(); html += '<hr>'; continue; }
+
+    if (line.startsWith('### ')) { closeList(); html += '<h3>' + inlineMd(line.slice(4)) + '</h3>'; continue; }
+
+    if (line.startsWith('## ')) {
+      closeList();
+      const text = line.slice(3).trim();
+      const vMatch = text.match(/v\d+\.\d+\.\d+/);
+      if (vMatch) {
+        const id = 'ver-' + vMatch[0].replace(/\./g, '-');
+        versions.push({ id, label: vMatch[0] });
+        html += '<h2 id="' + id + '">' + inlineMd(text) + '</h2>';
+      } else {
+        html += '<h2>' + inlineMd(text) + '</h2>';
+      }
+      continue;
+    }
+
+    if (line.startsWith('# ')) { closeList(); html += '<h1>' + inlineMd(line.slice(2)) + '</h1>'; continue; }
+    if (line.startsWith('> ')) { closeList(); html += '<blockquote>' + inlineMd(line.slice(2)) + '</blockquote>'; continue; }
+    if (/^[-*] /.test(line.trim())) {
+      if (!inList || listType !== 'ul') { closeList(); html += '<ul>'; inList = true; listType = 'ul'; }
+      html += '<li>' + inlineMd(line.trim().replace(/^[-*] /, '')) + '</li>';
+      continue;
+    }
+    if (/^\d+\.\s/.test(line.trim())) {
+      if (!inList || listType !== 'ol') { closeList(); html += '<ol>'; inList = true; listType = 'ol'; }
+      html += '<li>' + inlineMd(line.trim().replace(/^\d+\.\s/, '')) + '</li>';
+      continue;
+    }
+    closeList();
+    html += '<p>' + inlineMd(line) + '</p>';
+  }
+  closeList();
+  if (inCode) { html += '<pre><code>' + esc(codeLines.join('\n')) + '</code></pre>'; }
+  return { body: html, versions };
+}
+
+function inlineMd(text) {
+  let s = esc(text);
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  return s;
+}
+
+function renderMarkdown(md) {
+  return renderMarkdownWithAnchors(md).body;
+}
+
+// ════════════════════════════════════
+//  工具函数
+// ════════════════════════════════════
+function esc(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+function escAttr(s) {
+  return esc(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
+});
+
+// 初始化
+loadTree();
+loadChangelog();
+</script>
+</body>
+</html>

@@ -74,6 +74,14 @@ def _jaccard_similarity(a: str, b: str) -> float:
 
 # ── 条目解析 ──
 
+def parse_markdown_entries(content: str) -> list[dict]:
+    """公开接口：将 Markdown 按 ## 二级标题分段解析为 {title, body} 列表。
+
+    供 Web 可视化（记忆回顾页）等外部模块复用解析逻辑，避免重复实现。
+    """
+    return _parse_diary_entries(content)
+
+
 def _parse_diary_entries(content: str) -> list[dict]:
     """将 Markdown 文件按 ## 分段解析为 {title, body} 列表。
 

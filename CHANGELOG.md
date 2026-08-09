@@ -19,6 +19,44 @@
 
 ---
 
+## [2026-08-08] v1.2.13 工作文件 Web 可视化：记忆回顾页 + 基因层页
+
+### 需求背景
+
+用户确认「记忆可视化」方向：统一记忆回顾页（对话历史 + 日记 + 经验全要）+ 可视化基因层（开源文件）。
+设计原则：**克制、只读、按需加载**——不做文件浏览器/网盘式大而全，目标是"审查智序者积累了什么"。
+
+### 新增
+
+1. **记忆回顾页**（[memory.html](file:///t:/zhixuzhe/engine/web/memory.html)，入口 `/memory`）
+   - 三个标签页：💬 对话历史 / 📔 日记 / 💡 经验，客户端即时搜索
+   - 对话历史：会话列表（时间/消息数/首条用户预览）→ 点击弹窗查看完整对话气泡（复用知识页 Markdown 渲染，工具调用折叠展示）
+   - 日记/经验：按天分组（`##` 条目解析复用 `MemoryReader`），预览列表 → 按需加载全文
+2. **基因层可视化页**（[genome.html](file:///t:/zhixuzhe/engine/web/genome.html)，入口 `/genome`）
+   - 概览卡片：版本 / 工具数 / 技能数 / 基因文件数
+   - 目录树：engine/ 递归 + 根目录基因文件（可折叠，点击查看文件内容，.md 走 Markdown 渲染，其余按代码展示）
+   - 进化史：CHANGELOG 渲染 + 版本锚点导航（vX.Y.Z 侧栏）
+3. **后端只读 API**（[web_server.py](file:///t:/zhixuzhe/engine/web_server.py)）：
+   - `/memory/conversations`、`/memory/conversation?file=X`、`/memory/days?kind=diary|experience`、`/memory/entry?kind&file&index`
+   - `/genome/tree`、`/genome/file?path=X`、`/genome/changelog`、`/genome/overview`
+   - 复用记忆解析：[memory_reader.py](file:///t:/zhixuzhe/engine/core/memory_reader.py) 新增公开 `parse_markdown_entries()`
+4. **导航互链**：index / profile / knowledge 顶部栏加入「🧠 记忆」「🧬 基因层」，两个新页面互相串通
+
+### 安全设计（沿用 P0 三件套，只读 GET 不额外加锁）
+
+- 路径穿越防护：`_safe_resolve` 统一 resolve + is_relative_to 校验，拒绝绝对路径与 `../`
+- 目录白名单：基因层仅 `engine/` + 根目录基因文件，`memory/`（灵魂层）、`logs/`、`.git` 段禁止
+- 密钥防护：`.env` 绝不展示；大小上限 1MB；前 2KB 含 NUL 判二进制不返回内容
+- 会话/条目文件名白名单正则（`\d{8}_\d{6}_\d+\.jsonl`、`\d{8}.md`）
+
+### 验证
+
+- 新增 [test_web_visual.py](file:///t:/zhixuzhe/engine/tests/test_web_visual.py) 15 个用例：路径安全（穿越/绝对/不存在）、基因树结构、灵魂层隔离、会话文件名白名单、日记/经验解析（tmp 注入）
+- 全部单元测试通过（90 + 15 = 105/105 全绿）
+- 浏览器冒烟：`/memory` 三标签加载、`/genome` 树浏览 + 文件查看 + 进化史锚点跳转正常
+
+---
+
 ## [2026-08-08] v1.2.12 learn 成功判定收紧：材料门槛 + 半数规则
 
 ### 问题

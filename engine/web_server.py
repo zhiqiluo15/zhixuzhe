@@ -46,6 +46,9 @@ if str(ROOT) not in sys.path:
 # 版本唯一来源：engine/__init__.py（禁止在本模块硬编码版本字符串）
 from engine import __version__ as ZX_VERSION
 
+# 记忆条目解析（日记/经验可视化复用同一解析器）
+from engine.core.memory_reader import parse_markdown_entries
+
 # 页面版本占位符 → 注入统一版本号
 _VERSION_TOKEN = "__ZX_VERSION__"
 
@@ -67,6 +70,272 @@ _learn_lock = threading.Lock()
 # ── HITL 确认状态 ──
 _pending_confirms: dict[str, dict] = {}  # confirm_id → {"event", "result", "session_id"}
 _pending_confirms_lock = threading.Lock()  # 保护 _pending_confirms 的并发访问
+
+# ── 记忆/基因层可视化（只读）──
+
+# 基因层文件白名单扩展名（可视化范围：engine/ + 根目录基因文件，不含灵魂层 memory/）
+_GENOME_EXTS = {
+    ".py", ".md", ".html", ".yaml", ".yml", ".txt", ".json", ".jsonl",
+    ".bat", ".ps1", ".toml", ".ini", ".cfg", ".js", ".css",
+}
+_GENOME_ALLOW_NAMES = {".gitignore", ".env.example"}  # 无扩展名白名单文件
+_GENOME_SKIP_DIRS = {
+    ".git", "__pycache__", ".pytest_cache", "node_modules", "target", "venv", ".venv",
+}
+_GENOME_SKIP_FILES = {".env"}  # 密钥文件绝不展示
+_GENOME_MAX_FILE = 1_000_000  # 单文件读取上限（1MB，防撑爆内存/上下文）
+
+# 灵魂层/运行时目录——基因层文件查看 API 禁止访问
+_GENOME_BLOCKED_SEGMENTS = {"memory", "logs", ".git"}
+
+_MEMORY_KINDS = {
+    "diary": ROOT / "memory" / "diary",
+    "experience": ROOT / "memory" / "experience",
+}
+
+
+def _safe_resolve(base: Path, rel: str) -> Path | None:
+    """把用户提供的相对路径解析到 base 内；穿越/绝对路径/不存在返回 None"""
+    if not rel:
+        return None
+    p = Path(rel)
+    if p.is_absolute():
+        return None
+    try:
+        resolved = (base / p).resolve()
+    except OSError:
+        return None
+    if not resolved.is_relative_to(base.resolve()):
+        return None
+    if not resolved.exists():
+        return None
+    return resolved
+
+
+def _list_genome_files() -> list[dict]:
+    """扫描基因层文件（engine/ 递归 + 根目录基因文件），返回扁平清单（相对 ROOT 路径）"""
+    out: list[dict] = []
+
+    def scan(base: Path, prefix: str, recurse: bool) -> None:
+        try:
+            entries = sorted(base.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+        except OSError:
+            return
+        for entry in entries:
+            name = entry.name
+            rel = f"{prefix}/{name}" if prefix else name
+            if entry.is_dir():
+                if name in _GENOME_SKIP_DIRS or (not recurse):
+                    continue
+                scan(entry, rel, True)
+            else:
+                if name in _GENOME_SKIP_FILES:
+                    continue
+                ext = entry.suffix.lower()
+                if ext not in _GENOME_EXTS and name not in _GENOME_ALLOW_NAMES:
+                    continue
+                try:
+                    size = entry.stat().st_size
+                except OSError:
+                    size = 0
+                out.append({
+                    "path": rel,
+                    "name": name,
+                    "dir": prefix,
+                    "size": size,
+                    "ext": ext.lstrip(".") or name,
+                })
+
+    scan(ROOT / "engine", "engine", True)
+    scan(ROOT, "", False)  # 根目录只取文件
+    return out
+
+
+def _build_genome_tree(files: list[dict]) -> list[dict]:
+    """把扁平文件清单组装成嵌套树（供前端渲染目录树）"""
+    root: list[dict] = []
+
+    for f in files:
+        parts = f["dir"].split("/") if f["dir"] else []
+        cur = root
+        cur_path = ""
+        for part in parts:
+            cur_path = f"{cur_path}/{part}" if cur_path else part
+            node = next(
+                (n for n in cur if n.get("name") == part and n["type"] == "dir"),
+                None,
+            )
+            if node is None:
+                node = {"path": cur_path, "name": part, "type": "dir", "children": []}
+                cur.append(node)
+            cur = node["children"]
+        cur.append({
+            "path": f["path"],
+            "name": f["name"],
+            "type": "file",
+            "size": f["size"],
+            "ext": f["ext"],
+        })
+
+    return root
+
+
+def _load_genome_file(rel: str) -> dict | None:
+    """读取基因层文件内容（仅 engine/ 与根目录基因文件，含穿越/密钥/二进制/大小防护）"""
+    if not rel:
+        return None
+    path = _safe_resolve(ROOT, rel)
+    if not path or not path.is_file():
+        return None
+    try:
+        rel_str = path.relative_to(ROOT).as_posix()
+    except ValueError:
+        return None
+    # 禁止访问灵魂层/运行时/密钥文件
+    if any(seg in _GENOME_BLOCKED_SEGMENTS for seg in rel_str.split("/")):
+        return None
+    if path.name in _GENOME_SKIP_FILES:
+        return None
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None
+    if size > _GENOME_MAX_FILE:
+        return None
+    # 二进制检测：前 2KB 含 NUL 视为二进制（复用 file_io 的约定）
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(2048)
+        if b"\x00" in head:
+            return {"path": rel_str, "name": path.name, "content": "", "size": size, "binary": True}
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            content = fh.read()
+    except OSError:
+        return None
+    return {"path": rel_str, "name": path.name, "content": content, "size": size, "binary": False}
+
+
+def _load_session_list() -> list[dict]:
+    """列出 memory/conversations/ 下所有非空会话，含消息数与首条用户消息预览"""
+    conv_dir = ROOT / "memory" / "conversations"
+    sessions: list[dict] = []
+    if not conv_dir.exists():
+        return sessions
+    for f in sorted(conv_dir.glob("*.jsonl")):
+        try:
+            size = f.stat().st_size
+        except OSError:
+            continue
+        if size == 0:
+            continue
+        name = f.name
+        m = re.match(r"(\d{8})_(\d{6})_\d+\.jsonl", name)
+        date_str = ""
+        if m:
+            date_str = f"{m.group(1)[:4]}-{m.group(1)[4:6]}-{m.group(1)[6:8]} {m.group(2)[:2]}:{m.group(2)[2:4]}"
+        count = 0
+        preview = ""
+        try:
+            with open(f, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    count += 1
+                    if not preview:
+                        try:
+                            d = json.loads(line)
+                            if d.get("role") == "user" and d.get("content"):
+                                preview = d["content"][:120]
+                        except json.JSONDecodeError:
+                            pass
+        except OSError:
+            continue
+        sessions.append({
+            "name": name, "date": date_str, "size": size,
+            "messages": count, "preview": preview,
+        })
+    sessions.reverse()  # 最新在前
+    return sessions
+
+
+def _load_session_messages(name: str) -> dict | None:
+    """读取单个会话的完整消息列表（文件名白名单正则 + 穿越防护）"""
+    if not name or not re.fullmatch(r"\d{8}_\d{6}_\d+\.jsonl", name):
+        return None
+    path = _safe_resolve(ROOT / "memory" / "conversations", name)
+    if not path or not path.is_file():
+        return None
+    messages: list[dict] = []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                messages.append({
+                    "role": d.get("role", ""),
+                    "content": d.get("content", "") or "",
+                    "tool_calls": d.get("tool_calls"),
+                })
+    except OSError:
+        return None
+    return {"name": name, "messages": messages}
+
+
+def _load_memory_days(kind: str) -> list[dict]:
+    """按天列出日记/经验文件及条目（只含预览，全文按需加载）"""
+    base = _MEMORY_KINDS.get(kind)
+    if base is None or not base.exists():
+        return []
+    days: list[dict] = []
+    for f in sorted(base.glob("*.md"), reverse=True):  # 最新日期在前
+        try:
+            content = f.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        entries: list[dict] = []
+        for i, e in enumerate(parse_markdown_entries(content)):
+            title = e["title"]
+            entries.append({
+                "index": i,
+                "title": title,
+                "is_task": title.startswith("[任务]"),
+                "preview": e["body"][:200],
+                "length": len(e["body"]),
+            })
+        if not entries:
+            continue
+        m = re.match(r"(\d{4})(\d{2})(\d{2})", f.name)
+        date_str = f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else ""
+        days.append({
+            "file": f.name, "date": date_str,
+            "count": len(entries), "entries": entries,
+        })
+    return days
+
+
+def _load_memory_entry(kind: str, file: str, index: int) -> dict | None:
+    """读取单条日记/经验条目全文"""
+    base = _MEMORY_KINDS.get(kind)
+    if base is None or not file or not re.fullmatch(r"\d{8}\.md", file):
+        return None
+    path = _safe_resolve(base, file)
+    if not path or not path.is_file():
+        return None
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    entries = parse_markdown_entries(content)
+    if index < 0 or index >= len(entries):
+        return None
+    e = entries[index]
+    return {"file": file, "index": index, "title": e["title"], "body": e["body"]}
 
 
 def _try_init_agent():
@@ -328,6 +597,26 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             self._serve_taxonomy()
         elif self.path.startswith("/learn/status"):
             self._serve_learn_status()
+        elif self.path == "/memory":
+            self._serve_memory_page()
+        elif self.path == "/memory/conversations":
+            self._serve_memory_conversations()
+        elif self.path.startswith("/memory/conversation?"):
+            self._serve_memory_conversation()
+        elif self.path.startswith("/memory/days?"):
+            self._serve_memory_days()
+        elif self.path.startswith("/memory/entry?"):
+            self._serve_memory_entry()
+        elif self.path == "/genome":
+            self._serve_genome_page()
+        elif self.path == "/genome/tree":
+            self._serve_genome_tree()
+        elif self.path.startswith("/genome/file?"):
+            self._serve_genome_file()
+        elif self.path == "/genome/changelog":
+            self._serve_genome_changelog()
+        elif self.path == "/genome/overview":
+            self._serve_genome_overview()
         else:
             self._error(404, "Not Found")
 
@@ -884,6 +1173,132 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
         with _learn_lock:
             task = _learn_tasks.get(learn_id, {"status": "not_found"})
         self.wfile.write(json.dumps(task, ensure_ascii=False).encode())
+
+    # ── 记忆回顾页 ──
+
+    def _serve_memory_page(self):
+        """GET /memory → 记忆回顾页（对话历史 + 日记 + 经验）"""
+        session_id = self._read_session_cookie()
+        self.send_response(200)
+        self._cors()
+        if not session_id:
+            self._set_session_cookie(secrets.token_urlsafe(32))
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        path = WEB_DIR / "memory.html"
+        if path.exists():
+            self.wfile.write(_inject_version(path.read_text(encoding="utf-8")).encode())
+        else:
+            self.wfile.write("<h1>memory.html 缺失</h1>".encode("utf-8"))
+
+    def _serve_memory_conversations(self):
+        """GET /memory/conversations → 会话列表"""
+        self._ok()
+        sessions = _load_session_list()
+        self.wfile.write(json.dumps({"sessions": sessions, "total": len(sessions)}, ensure_ascii=False).encode())
+
+    def _serve_memory_conversation(self):
+        """GET /memory/conversation?file=X → 单个会话完整消息"""
+        import urllib.parse
+        params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        data = _load_session_messages(params.get("file", [""])[0])
+        if data is None:
+            self._error(404, "会话不存在")
+            return
+        self._ok()
+        self.wfile.write(json.dumps(data, ensure_ascii=False).encode())
+
+    def _serve_memory_days(self):
+        """GET /memory/days?kind=diary|experience → 按天分组的条目列表（含预览）"""
+        import urllib.parse
+        params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        kind = params.get("kind", ["diary"])[0]
+        if kind not in _MEMORY_KINDS:
+            self._error(400, "kind 必须是 diary 或 experience")
+            return
+        self._ok()
+        days = _load_memory_days(kind)
+        self.wfile.write(json.dumps({"kind": kind, "days": days}, ensure_ascii=False).encode())
+
+    def _serve_memory_entry(self):
+        """GET /memory/entry?kind=diary&file=20260808.md&index=3 → 单条条目全文"""
+        import urllib.parse
+        params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        kind = params.get("kind", [""])[0]
+        file = params.get("file", [""])[0]
+        try:
+            index = int(params.get("index", ["-1"])[0])
+        except ValueError:
+            index = -1
+        data = _load_memory_entry(kind, file, index)
+        if data is None:
+            self._error(404, "条目不存在")
+            return
+        self._ok()
+        self.wfile.write(json.dumps(data, ensure_ascii=False).encode())
+
+    # ── 基因层可视化页 ──
+
+    def _serve_genome_page(self):
+        """GET /genome → 基因层可视化页（目录树 + 文件查看 + 进化史）"""
+        session_id = self._read_session_cookie()
+        self.send_response(200)
+        self._cors()
+        if not session_id:
+            self._set_session_cookie(secrets.token_urlsafe(32))
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        path = WEB_DIR / "genome.html"
+        if path.exists():
+            self.wfile.write(_inject_version(path.read_text(encoding="utf-8")).encode())
+        else:
+            self.wfile.write("<h1>genome.html 缺失</h1>".encode("utf-8"))
+
+    def _serve_genome_tree(self):
+        """GET /genome/tree → 基因层文件树"""
+        self._ok()
+        files = _list_genome_files()
+        tree = _build_genome_tree(files)
+        self.wfile.write(json.dumps({"files": len(files), "tree": tree}, ensure_ascii=False).encode())
+
+    def _serve_genome_file(self):
+        """GET /genome/file?path=engine/core/loop.py → 文件内容（只读 + 安全校验）"""
+        import urllib.parse
+        params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        data = _load_genome_file(params.get("path", [""])[0])
+        if data is None:
+            self._error(404, "文件不存在或不可访问")
+            return
+        self._ok()
+        self.wfile.write(json.dumps(data, ensure_ascii=False).encode())
+
+    def _serve_genome_changelog(self):
+        """GET /genome/changelog → CHANGELOG.md 原始内容（进化史渲染用）"""
+        path = ROOT / "CHANGELOG.md"
+        content = path.read_text(encoding="utf-8") if path.exists() else ""
+        self._ok()
+        self.wfile.write(json.dumps({"content": content}, ensure_ascii=False).encode())
+
+    def _serve_genome_overview(self):
+        """GET /genome/overview → 版本/工具数/技能数概览"""
+        status = get_agent_status()
+        tools = skills = 0
+        if status["ready"]:
+            try:
+                agent = get_agent()
+                tools = agent.tool_count
+                skills = agent.skill_count
+            except Exception:
+                pass
+        self._ok()
+        self.wfile.write(json.dumps({
+            "version": ZX_VERSION,
+            "tools": tools,
+            "skills": skills,
+            "ready": status["ready"],
+        }, ensure_ascii=False).encode())
 
     # ── 学习任务 ──
 

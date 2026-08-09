@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智序者 - 记忆回顾 v__ZX_VERSION__</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #03030d;
+  color: #d0d0d0;
+  min-height: 100vh;
+  padding: 0 20px 40px;
+}
+
+/* ── 顶部栏 ── */
+.topbar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 18px 0; border-bottom: 1px solid rgba(167,139,250,0.08);
+  margin-bottom: 24px; flex-wrap: wrap;
+}
+.topbar a {
+  color: #a78bfa; text-decoration: none; font-size: 13px;
+  padding: 6px 14px; border-radius: 7px;
+  border: 1px solid rgba(167,139,250,0.15);
+  transition: all 0.2s;
+}
+.topbar a:hover { background: rgba(167,139,250,0.12); }
+.topbar h1 {
+  font-size: 20px; font-weight: 600;
+  background: linear-gradient(135deg, #a78bfa, #60a5fa);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.topbar .badge {
+  font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  background: rgba(167,139,250,0.12); color: #8b83ba;
+}
+.topbar .count-info { margin-left: auto; font-size: 12px; color: #666; }
+
+/* ── 标签页 ── */
+.tabs {
+  display: flex; gap: 8px; margin-bottom: 20px;
+  border-bottom: 1px solid rgba(167,139,250,0.08); padding-bottom: 12px;
+}
+.tab {
+  font-size: 13px; padding: 8px 20px; border-radius: 9px;
+  cursor: pointer; color: #888; border: 1px solid transparent;
+  transition: all 0.2s; background: transparent;
+}
+.tab:hover { color: #bbb; background: rgba(167,139,250,0.06); }
+.tab.active {
+  color: #c4b5fd; background: rgba(167,139,250,0.1);
+  border-color: rgba(167,139,250,0.2);
+}
+
+/* ── 搜索栏 ── */
+.search-bar { margin-bottom: 20px; }
+.search-bar input {
+  width: 100%; max-width: 400px;
+  padding: 10px 16px; border-radius: 10px;
+  background: rgba(16,16,32,0.8); border: 1px solid rgba(167,139,250,0.12);
+  color: #d0d0d0; font-size: 13px; outline: none;
+  transition: border-color 0.2s;
+}
+.search-bar input:focus { border-color: rgba(167,139,250,0.3); }
+.search-bar input::placeholder { color: #555; }
+
+/* ── 列表区 ── */
+.list-area { display: flex; flex-direction: column; gap: 14px; }
+
+.card {
+  background: rgba(16,16,32,0.6); border: 1px solid rgba(167,139,250,0.08);
+  border-radius: 14px; overflow: hidden;
+}
+.card-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 20px; cursor: pointer;
+  transition: background 0.2s;
+}
+.card-header:hover { background: rgba(167,139,250,0.04); }
+.card-header h3 { font-size: 14px; color: #c4b5fd; font-weight: 600; }
+.card-header .date { font-size: 12px; color: #777; }
+.card-header .count { font-size: 11px; color: #666; margin-left: auto; }
+
+.card-body { padding: 0 20px 16px; display: flex; flex-direction: column; gap: 8px; }
+
+/* ── 会话卡片 ── */
+.session-item {
+  background: rgba(22,22,38,0.8); border: 1px solid rgba(167,139,250,0.06);
+  border-radius: 10px; padding: 12px 16px; cursor: pointer;
+  transition: all 0.2s;
+}
+.session-item:hover { border-color: rgba(167,139,250,0.2); background: rgba(26,26,44,0.9); }
+.session-item .s-meta { font-size: 11px; color: #666; margin-bottom: 5px; display: flex; gap: 14px; }
+.session-item .s-preview {
+  font-size: 12px; color: #888; line-height: 1.5;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── 日记/经验条目 ── */
+.entry-item {
+  background: rgba(22,22,38,0.8); border: 1px solid rgba(167,139,250,0.06);
+  border-radius: 10px; padding: 12px 16px; cursor: pointer;
+  transition: all 0.2s;
+}
+.entry-item:hover { border-color: rgba(167,139,250,0.2); background: rgba(26,26,44,0.9); }
+.entry-item .e-title {
+  font-size: 12.5px; font-weight: 600; color: #ddd; margin-bottom: 4px;
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+.entry-item.task .e-title { color: #d4a853; }
+.entry-item .e-preview {
+  font-size: 12px; color: #777; line-height: 1.5;
+  overflow: hidden; text-overflow: ellipsis;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.entry-item .e-meta { font-size: 10px; color: #555; margin-top: 4px; }
+
+/* ── 空状态 ── */
+.empty-state { text-align: center; padding: 60px 20px; color: #555; font-size: 13px; }
+
+/* ── 弹窗 ── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.75); z-index: 100;
+  justify-content: center; align-items: flex-start;
+  padding: 40px 20px; overflow-y: auto;
+}
+.modal-overlay.active { display: flex; }
+.modal {
+  background: #0d0d1a; border: 1px solid rgba(167,139,250,0.12);
+  border-radius: 14px; width: 100%; max-width: 820px;
+  max-height: 85vh; display: flex; flex-direction: column;
+}
+.modal-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 18px 24px; border-bottom: 1px solid rgba(167,139,250,0.08);
+  flex-shrink: 0;
+}
+.modal-header h2 { font-size: 15px; font-weight: 600; color: #c4b5fd; flex: 1; }
+.modal-close {
+  background: none; border: none; color: #666; font-size: 20px;
+  cursor: pointer; padding: 4px 8px; border-radius: 6px; line-height: 1;
+}
+.modal-close:hover { background: rgba(255,255,255,0.06); color: #aaa; }
+.modal-body {
+  padding: 20px 24px; overflow-y: auto; flex: 1;
+  font-size: 13px; line-height: 1.75; color: #bbb;
+}
+.modal-meta {
+  font-size: 11px; color: #555; padding: 10px 24px;
+  border-top: 1px solid rgba(167,139,250,0.06); flex-shrink: 0;
+}
+
+/* ── 对话气泡 ── */
+.chat-line { display: flex; margin-bottom: 14px; }
+.chat-line.user { justify-content: flex-end; }
+.chat-line .role-tag {
+  font-size: 10px; color: #777; flex-shrink: 0; align-self: flex-end;
+  margin: 0 8px 4px 0;
+}
+.chat-line.user .role-tag { margin: 0 0 4px 8px; }
+.chat-bubble {
+  max-width: 72%; padding: 10px 14px; border-radius: 12px;
+  font-size: 13px; line-height: 1.7;
+}
+.chat-line.assistant .chat-bubble {
+  background: rgba(167,139,250,0.08); border: 1px solid rgba(167,139,250,0.12);
+}
+.chat-line.user .chat-bubble {
+  background: rgba(96,165,250,0.12); border: 1px solid rgba(96,165,250,0.2);
+}
+.tool-line {
+  font-size: 11px; color: #666; background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.05); border-radius: 8px;
+  padding: 8px 12px; margin: 6px 0 6px 12px; max-width: 80%;
+  font-family: "Cascadia Code", Consolas, monospace;
+  overflow-x: auto; white-space: pre-wrap;
+}
+.sys-line {
+  text-align: center; font-size: 11px; color: #555; margin: 8px 0;
+}
+
+/* ── Markdown 内容样式（复用知识弹窗） ── */
+.md h1 { font-size: 18px; color: #d0d0d0; margin-bottom: 12px; }
+.md h2 { font-size: 16px; color: #c4b5fd; margin: 20px 0 10px; }
+.md h3 { font-size: 14px; color: #a78bfa; margin: 16px 0 8px; }
+.md p { margin-bottom: 10px; }
+.md ul, .md ol { margin: 8px 0 12px 20px; }
+.md li { margin-bottom: 4px; }
+.md code {
+  background: rgba(167,139,250,0.08); padding: 1px 6px; border-radius: 4px;
+  font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-size: 12px; color: #a78bfa;
+}
+.md pre {
+  background: rgba(0,0,0,0.3); border: 1px solid rgba(167,139,250,0.06);
+  border-radius: 8px; padding: 12px 16px; overflow-x: auto; margin: 10px 0;
+}
+.md pre code { background: none; padding: 0; color: #9ca3af; }
+.md blockquote {
+  border-left: 3px solid rgba(167,139,250,0.3);
+  padding-left: 12px; margin: 10px 0; color: #888;
+}
+.md table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12px; }
+.md th, .md td { border: 1px solid rgba(167,139,250,0.1); padding: 6px 10px; text-align: left; }
+.md th { background: rgba(167,139,250,0.06); color: #c4b5fd; }
+.md strong { color: #d0d0d0; }
+.md hr { border: none; border-top: 1px solid rgba(167,139,250,0.08); margin: 16px 0; }
+.md a { color: #60a5fa; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>智序者 zhixuzhe</h1>
+  <span class="badge">v__ZX_VERSION__</span>
+  <a href="/">← 返回对话</a>
+  <a href="/knowledge">📚 知识库</a>
+  <a href="/profile">学习面板</a>
+  <a href="/genome">🧬 基因层</a>
+  <span class="count-info" id="count-info"></span>
+</div>
+
+<div class="tabs">
+  <button class="tab active" id="tab-conversations" onclick="switchTab('conversations')">💬 对话历史</button>
+  <button class="tab" id="tab-diary" onclick="switchTab('diary')">📔 日记</button>
+  <button class="tab" id="tab-experience" onclick="switchTab('experience')">💡 经验</button>
+</div>
+
+<div class="search-bar">
+  <input type="text" id="search-input" placeholder="搜索当前标签页..." oninput="renderList()">
+</div>
+
+<div class="list-area" id="list-area">
+  <div class="empty-state">加载中...</div>
+</div>
+
+<!-- 详情弹窗 -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h2 id="modal-title"></h2>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-meta" id="modal-meta"></div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════
+//  状态
+// ════════════════════════════════════
+let currentTab = 'conversations';
+let conversations = { sessions: [], total: 0 };
+let diaryDays = [];
+let experienceDays = [];
+
+// ════════════════════════════════════
+//  数据加载
+// ════════════════════════════════════
+async function loadAll() {
+  try {
+    const [conv, diary, exp] = await Promise.all([
+      fetch('/memory/conversations').then(r => r.json()),
+      fetch('/memory/days?kind=diary').then(r => r.json()),
+      fetch('/memory/days?kind=experience').then(r => r.json()),
+    ]);
+    conversations = conv;
+    diaryDays = diary.days || [];
+    experienceDays = exp.days || [];
+    updateCount();
+    renderList();
+  } catch(e) {
+    document.getElementById('list-area').innerHTML =
+      '<div class="empty-state" style="color:#f87171">加载失败: ' + esc(String(e)) + '</div>';
+  }
+}
+
+function updateCount() {
+  const expCount = experienceDays.reduce((s, d) => s + d.count, 0);
+  document.getElementById('count-info').textContent =
+    conversations.total + ' 会话 · ' +
+    diaryDays.reduce((s, d) => s + d.count, 0) + ' 日记 · ' + expCount + ' 经验';
+}
+
+// ════════════════════════════════════
+//  标签页切换 + 渲染
+// ════════════════════════════════════
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  renderList();
+}
+
+function getSearchTerm() {
+  return (document.getElementById('search-input').value || '').toLowerCase().trim();
+}
+
+function renderList() {
+  const area = document.getElementById('list-area');
+  const term = getSearchTerm();
+  let html = '';
+
+  if (currentTab === 'conversations') {
+    let sessions = conversations.sessions;
+    if (term) sessions = sessions.filter(s => (s.preview + ' ' + s.name).toLowerCase().includes(term));
+    if (sessions.length === 0) {
+      html = '<div class="empty-state">暂无会话记录' + (term ? '，未找到匹配' : '') + '</div>';
+    } else {
+      html = sessions.map(s => `
+        <div class="session-item" onclick="viewConversation('${escAttr(s.name)}')">
+          <div class="s-meta"><span>🕐 ${esc(s.date)}</span><span>💬 ${s.messages} 条</span><span>${fmtSize(s.size)}</span></div>
+          <div class="s-preview">${esc(s.preview || '(空会话)')}</div>
+        </div>`).join('');
+    }
+  } else {
+    const days = currentTab === 'diary' ? diaryDays : experienceDays;
+    let visible = days.map(d => ({ ...d, entries: d.entries.filter(e =>
+      !term || (e.title + ' ' + e.preview).toLowerCase().includes(term)) }))
+      .filter(d => d.entries.length > 0);
+    if (visible.length === 0) {
+      const label = currentTab === 'diary' ? '日记' : '经验';
+      html = '<div class="empty-state">暂无' + label + '记录' + (term ? '，未找到匹配' : '') + '</div>';
+    } else {
+      html = visible.map(d => `
+        <div class="card">
+          <div class="card-header" onclick="toggleBody(this)">
+            <span>📅</span><h3>${esc(d.date)}</h3>
+            <span class="count">${d.entries.length} 条</span>
+          </div>
+          <div class="card-body">
+            ${d.entries.map(e => `
+              <div class="entry-item ${e.is_task ? 'task' : ''}"
+                   onclick="viewEntry('${currentTab}','${escAttr(d.file)}',${e.index})">
+                <div class="e-title">${e.is_task ? '🤖 ' : ''}${esc(e.title)}</div>
+                <div class="e-preview">${esc(e.preview || '(无正文)')}</div>
+                <div class="e-meta">${e.length} 字</div>
+              </div>`).join('')}
+          </div>
+        </div>`).join('');
+    }
+  }
+  area.innerHTML = html;
+}
+
+function toggleBody(header) {
+  const body = header.nextElementSibling;
+  if (body) body.style.display = body.style.display === 'none' ? '' : 'none';
+}
+
+function fmtSize(bytes) {
+  if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+  if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return bytes + ' B';
+}
+
+// ════════════════════════════════════
+//  查看会话 / 条目
+// ════════════════════════════════════
+async function viewConversation(name) {
+  const modal = document.getElementById('modal-overlay');
+  document.getElementById('modal-title').textContent = name;
+  document.getElementById('modal-body').innerHTML =
+    '<div style="color:#555;text-align:center;padding:20px">加载中...</div>';
+  document.getElementById('modal-meta').textContent = '';
+  modal.classList.add('active');
+
+  try {
+    const resp = await fetch('/memory/conversation?file=' + encodeURIComponent(name));
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    const msgs = data.messages || [];
+    document.getElementById('modal-body').innerHTML = msgs.map(renderMessage).join('');
+    document.getElementById('modal-meta').textContent = name + ' · ' + msgs.length + ' 条消息';
+  } catch(e) {
+    document.getElementById('modal-body').innerHTML =
+      '<div style="color:#f87171">加载失败: ' + esc(String(e)) + '</div>';
+  }
+}
+
+function renderMessage(m) {
+  const role = m.role;
+  const content = m.content || '';
+  let toolHtml = '';
+  if (m.tool_calls && m.tool_calls.length > 0) {
+    toolHtml = m.tool_calls.map(tc => {
+      const fn = (tc.function || {});
+      const args = typeof fn.arguments === 'string' ? fn.arguments : JSON.stringify(fn.arguments || {});
+      return '<div class="tool-line">🔧 ' + esc(fn.name || 'tool') + '(' + esc(args.slice(0, 200)) + ')</div>';
+    }).join('');
+  }
+  if (role === 'user') {
+    return '<div class="chat-line user"><div class="chat-bubble">' + esc(content) + '</div><span class="role-tag">你</span></div>';
+  }
+  if (role === 'assistant') {
+    return '<div class="chat-line assistant"><span class="role-tag">智序者</span><div class="chat-bubble md">' +
+           renderMarkdown(content || '(空回复)') + '</div></div>' + toolHtml;
+  }
+  if (role === 'tool') {
+    return '<div class="tool-line">⚙️ 工具返回: ' + esc(content.slice(0, 300)) + '</div>';
+  }
+  if (role === 'system') {
+    return '<div class="sys-line">[系统] ' + esc(content.slice(0, 150)) + '</div>';
+  }
+  return '';
+}
+
+async function viewEntry(kind, file, index) {
+  const modal = document.getElementById('modal-overlay');
+  document.getElementById('modal-title').textContent = file;
+  document.getElementById('modal-body').innerHTML =
+    '<div style="color:#555;text-align:center;padding:20px">加载中...</div>';
+  document.getElementById('modal-meta').textContent = '';
+  modal.classList.add('active');
+
+  try {
+    const resp = await fetch('/memory/entry?kind=' + kind + '&file=' + encodeURIComponent(file) + '&index=' + index);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    document.getElementById('modal-title').textContent = data.title || file;
+    document.getElementById('modal-body').innerHTML =
+      '<div class="md">' + renderMarkdown(data.body || '(空内容)') + '</div>';
+    document.getElementById('modal-meta').textContent =
+      (kind === 'diary' ? '日记' : '经验') + ' · ' + file + ' · 条目 #' + index;
+  } catch(e) {
+    document.getElementById('modal-body').innerHTML =
+      '<div style="color:#f87171">加载失败: ' + esc(String(e)) + '</div>';
+  }
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('modal-overlay')) return;
+  document.getElementById('modal-overlay').classList.remove('active');
+}
+
+// ════════════════════════════════════
+//  简易 Markdown 渲染（与知识页一致）
+// ════════════════════════════════════
+function renderMarkdown(md) {
+  let lines = md.split('\n');
+  let html = '';
+  let inCode = false;
+  let codeLines = [];
+  let inList = false;
+  let listType = '';
+  let inTable = false;
+  let tableRows = [];
+
+  function closeList() {
+    if (inList) { html += '</' + listType + '>'; inList = false; }
+  }
+  function closeTable() {
+    if (inTable && tableRows.length > 0) {
+      html += '<table>';
+      tableRows.forEach((row, idx) => {
+        const tag = idx === 0 ? 'th' : 'td';
+        const cells = row.split('|').map(c => c.trim()).filter(c => c !== '');
+        if (idx === 1 && cells.every(c => /^[-:]+$/.test(c.replace(/\s/g,'')))) return;
+        html += '<tr>';
+        cells.forEach(c => { html += '<' + tag + '>' + inlineMd(c) + '</' + tag + '>'; });
+        html += '</tr>';
+      });
+      html += '</table>';
+      inTable = false; tableRows = [];
+    }
+  }
+
+  for (let line of lines) {
+    if (line.startsWith('```')) {
+      if (inCode) {
+        html += '<pre><code>' + esc(codeLines.join('\n')) + '</code></pre>';
+        codeLines = []; inCode = false;
+      } else { closeList(); closeTable(); inCode = true; }
+      continue;
+    }
+    if (inCode) { codeLines.push(line); continue; }
+    if (!line.trim()) { closeList(); closeTable(); html += '\n'; continue; }
+    if (/^---+$/.test(line.trim())) { closeList(); closeTable(); html += '<hr>'; continue; }
+    if (line.startsWith('# ')) { closeList(); closeTable(); html += '<h1>' + inlineMd(line.slice(2)) + '</h1>'; continue; }
+    if (line.startsWith('## ')) { closeList(); closeTable(); html += '<h2>' + inlineMd(line.slice(3)) + '</h2>'; continue; }
+    if (line.startsWith('### ')) { closeList(); closeTable(); html += '<h3>' + inlineMd(line.slice(4)) + '</h3>'; continue; }
+    if (line.startsWith('> ')) { closeList(); closeTable(); html += '<blockquote>' + inlineMd(line.slice(2)) + '</blockquote>'; continue; }
+    if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+      closeList(); inTable = true; tableRows.push(line.trim()); continue;
+    } else if (inTable) { closeTable(); }
+    if (/^[-*] /.test(line.trim())) {
+      if (!inList || listType !== 'ul') { closeList(); html += '<ul>'; inList = true; listType = 'ul'; }
+      html += '<li>' + inlineMd(line.trim().replace(/^[-*] /, '')) + '</li>';
+      continue;
+    }
+    if (/^\d+\.\s/.test(line.trim())) {
+      if (!inList || listType !== 'ol') { closeList(); html += '<ol>'; inList = true; listType = 'ol'; }
+      html += '<li>' + inlineMd(line.trim().replace(/^\d+\.\s/, '')) + '</li>';
+      continue;
+    }
+    closeList();
+    html += '<p>' + inlineMd(line) + '</p>';
+  }
+  closeList(); closeTable();
+  if (inCode) { html += '<pre><code>' + esc(codeLines.join('\n')) + '</code></pre>'; }
+  return html;
+}
+
+function inlineMd(text) {
+  let s = esc(text);
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  return s;
+}
+
+// ════════════════════════════════════
+//  工具函数
+// ════════════════════════════════════
+function esc(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+function escAttr(s) {
+  return esc(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+}
+
+// ESC 关闭弹窗
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
+});
+
+// 初始化
+loadAll();
+</script>
+</body>
+</html>
