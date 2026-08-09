@@ -78,7 +78,7 @@ _GENOME_EXTS = {
     ".py", ".md", ".html", ".yaml", ".yml", ".txt", ".json", ".jsonl",
     ".bat", ".ps1", ".toml", ".ini", ".cfg", ".js", ".css",
 }
-_GENOME_ALLOW_NAMES = {".gitignore", ".env.example"}  # 无扩展名白名单文件
+_GENOME_ALLOW_NAMES = {".gitignore", ".env.example", "LICENSE"}  # 无扩展名白名单文件
 _GENOME_SKIP_DIRS = {
     ".git", "__pycache__", ".pytest_cache", "node_modules", "target", "venv", ".venv",
 }
