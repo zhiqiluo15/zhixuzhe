@@ -14,6 +14,7 @@
   python engine/tools/video_maker.py --text "自定义文案"
   python engine/tools/video_maker.py --voice zh-CN-YunxiNeural --out videos/out.mp4
   python engine/tools/video_maker.py --voice cosyvoice:中文女声 --out videos/out.mp4
+  python engine/tools/video_maker.py --voice cosyvoice:中文女声 --prompt-wav cross --out videos/out.mp4
 
 API：
   make_douyin_video(text, out_path, voice) -> str        # 返回报告，供 Tool 调用
@@ -178,6 +179,34 @@ def tts_local(sentence: str, out_wav: Path, rate: int = 175) -> float:
 # CosyVoice 本地服务（私有部署于 .runtime/cosyvoice，不在公共仓库）
 COSYVOICE_PORT = 9880
 
+# CosyVoice 内置参考音色（零样本克隆底音）
+COSYVOICE_BUILTIN_PROMPTS = {
+    "zero": "zero_shot_prompt.wav",
+    "default": "zero_shot_prompt.wav",
+    "cross": "cross_lingual_prompt.wav",
+    "cross_lingual": "cross_lingual_prompt.wav",
+}
+
+
+def resolve_cosyvoice_prompt(prompt_wav: str) -> str | None:
+    """把参考音频参数解析为服务端可用的绝对路径。
+
+    内置名（zero/cross 等）→ .runtime/cosyvoice/CosyVoice-main/asset 下的示例音频；
+    自定义路径 → 原样绝对化；空/无效 → None（服务端用默认音色）。
+    """
+    if not prompt_wav:
+        return None
+    if prompt_wav in COSYVOICE_BUILTIN_PROMPTS:
+        return str(
+            ROOT / ".runtime" / "cosyvoice" / "CosyVoice-main" / "asset"
+            / COSYVOICE_BUILTIN_PROMPTS[prompt_wav]
+        )
+    p = Path(prompt_wav)
+    if p.exists():
+        return str(p.resolve())
+    logger.warning(f"  CosyVoice 参考音频不存在（{prompt_wav}），回退默认音色")
+    return None
+
 
 def _ensure_cosyvoice_server() -> str:
     """确保 CosyVoice 本地 TTS 服务在运行，返回 base url。
@@ -217,20 +246,21 @@ def _ensure_cosyvoice_server() -> str:
     raise RuntimeError("CosyVoice 服务启动超时")
 
 
-def tts_cosyvoice(sentence: str, prompt_text: str, out_wav: Path) -> float:
+def tts_cosyvoice(sentence: str, prompt_text: str, out_wav: Path, prompt_wav: str | None = None) -> float:
     """本地 CosyVoice 零样本克隆合成单句配音（需 .runtime/cosyvoice 私有部署）。
 
-    prompt_text 为音色描述（如「中文女声」），服务端使用内置示例音频作为克隆底音。
+    prompt_text 为音色描述（如「中文女声」）；prompt_wav 为克隆底音参考音频
+    （内置名 zero/cross 或自定义 wav 路径，空则服务端用默认音色）。
     返回时长（秒），wav 写入 out_wav。
     """
     import requests
 
     base = _ensure_cosyvoice_server()
-    resp = requests.post(
-        base + "/tts",
-        json={"text": sentence, "prompt_text": prompt_text},
-        timeout=600,
-    )
+    payload = {"text": sentence, "prompt_text": prompt_text}
+    resolved = resolve_cosyvoice_prompt(prompt_wav)
+    if resolved:
+        payload["prompt_wav"] = resolved
+    resp = requests.post(base + "/tts", json=payload, timeout=600)
     resp.raise_for_status()
     out_wav.write_bytes(resp.content)
     dur = float(resp.headers.get("X-Duration", 0))
@@ -242,7 +272,9 @@ def tts_cosyvoice(sentence: str, prompt_text: str, out_wav: Path) -> float:
     return dur
 
 
-async def tts_one(sentence: str, voice: str, out_mp3: Path, rate: str = "+0%") -> tuple[float, str, Path]:
+async def tts_one(
+    sentence: str, voice: str, out_mp3: Path, rate: str = "+0%", prompt_wav: str | None = None
+) -> tuple[float, str, Path]:
     """合成单句配音：
     - voice 以 `cosyvoice:` 开头 → 本地 CosyVoice 克隆引擎（失败回退 SAPI5）
     - 其它 voice → edge-tts 优先，失败自动回退本地 SAPI5
@@ -252,7 +284,7 @@ async def tts_one(sentence: str, voice: str, out_mp3: Path, rate: str = "+0%") -
         prompt_text = voice.split(":", 1)[1].strip() or "中文女声"
         wav = out_mp3.with_suffix(".wav")
         try:
-            dur = await asyncio.to_thread(tts_cosyvoice, sentence, prompt_text, wav)
+            dur = await asyncio.to_thread(tts_cosyvoice, sentence, prompt_text, wav, prompt_wav)
             return dur, "cosyvoice", wav
         except Exception as exc:
             logger.warning(f"  cosyvoice 失败（{exc}），回退本地 SAPI5")
@@ -269,14 +301,14 @@ async def tts_one(sentence: str, voice: str, out_mp3: Path, rate: str = "+0%") -
 
 
 async def _synthesize_async(
-    sentences: list[str], voice: str, workdir: Path
+    sentences: list[str], voice: str, workdir: Path, prompt_wav: str | None = None
 ) -> list[tuple[str, Path, float]]:
     """逐句合成配音，返回 [(句子, 音频文件路径, 时长)]"""
     results = []
     engines = set()
     for i, sent in enumerate(sentences):
         mp3 = workdir / f"seg_{i:03d}.mp3"
-        duration, engine, audio_path = await tts_one(sent, voice, mp3)
+        duration, engine, audio_path = await tts_one(sent, voice, mp3, prompt_wav=prompt_wav)
         engines.add(engine)
         results.append((sent, audio_path, duration))
         logger.info(f"  [TTS] 句 {i + 1}/{len(sentences)}: {duration:.2f}s（{engine}）「{sent[:20]}...」")
@@ -287,8 +319,12 @@ def make_douyin_video(
     text: str = DEFAULT_TEXT,
     out_path: str = "",
     voice: str = "zh-CN-XiaoxiaoNeural",
+    prompt_wav: str | None = None,
 ) -> str:
-    """制作抖音竖屏短视频，返回报告。供 Tool 调用。"""
+    """制作抖音竖屏短视频，返回报告。供 Tool 调用。
+
+    prompt_wav：CosyVoice 克隆底音参考音频（内置名 zero/cross 或自定义 wav 路径）。
+    """
     from moviepy import AudioFileClip, ImageClip, concatenate_audioclips, concatenate_videoclips
 
     root = Path(__file__).resolve().parent.parent.parent
@@ -311,7 +347,7 @@ def make_douyin_video(
     # 1. TTS 逐句配音（edge-tts / 本地 CosyVoice / 兜底 SAPI5）
     lines.append("── 语音合成（edge-tts / CosyVoice / SAPI5）──")
     t0 = time.perf_counter()
-    segments, engines = asyncio.run(_synthesize_async(sentences, voice, workdir))
+    segments, engines = asyncio.run(_synthesize_async(sentences, voice, workdir, prompt_wav))
     lines.append(f"配音完成，耗时 {time.perf_counter() - t0:.1f}s，引擎: {', '.join(sorted(engines))}")
 
     # 2. 生成渐变背景 + 逐句字幕帧
@@ -381,9 +417,10 @@ def main() -> None:
     parser.add_argument("--text", default=DEFAULT_TEXT, help="口播文案（缺省用内置智序者宣传文案）")
     parser.add_argument("--voice", default="zh-CN-XiaoxiaoNeural", help="音色：edge-tts 如 zh-CN-YunxiNeural；本地克隆用 cosyvoice:中文女声")
     parser.add_argument("--out", default="", help="输出路径（缺省 videos/douyin_时间戳.mp4）")
+    parser.add_argument("--prompt-wav", default="", help="CosyVoice 克隆底音：内置 zero/cross，或自定义参考音频 wav 路径")
     args = parser.parse_args()
 
-    print(make_douyin_video(args.text, args.out, args.voice))
+    print(make_douyin_video(args.text, args.out, args.voice, args.prompt_wav or None))
 
 
 if __name__ == "__main__":

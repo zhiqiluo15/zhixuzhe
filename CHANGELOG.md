@@ -19,6 +19,37 @@
 
 ---
 
+## [2026-08-09] v1.2.17 make_video 支持换音色（--prompt-wav）
+
+### 需求背景
+
+用户问「现在可以换音色了吗」。CosyVoice 是零样本克隆模型，换音色 = 换参考音频。
+先支持内置音色切换（zero/cross），并预留自定义参考音频入口。
+
+### 新增
+
+- [video_maker.py](file:///t:/zhixuzhe/engine/tools/video_maker.py) 新增 `--prompt-wav` 参数：
+  - 内置名：`zero`（默认女声）/ `cross`（跨语言女声）→ 解析为 CosyVoice-main/asset 下示例音频
+  - 自定义 wav 路径 → 原样传给服务端（用户后续可放自己的参考音频克隆任意声音）
+  - 无效/空 → 服务端默认音色
+- CosyVoice 服务端 API 本就支持 `prompt_wav` 字段，make_video 侧打通透传
+
+### 修复（重要）
+
+- **file_utils.py 的 soundfile 补丁丢失**：CosyVoice 部署目录曾被还原为原始代码，
+  `load_wav` 仍走 torchaudio（Windows 需 torchcodec）→ 服务端 500。重新应用补丁并加
+  `# PATCH(zhixuzhe)` 标记，便于检查。教训：.runtime 私有补丁需自查 `git diff` 之外的
+  关键文件内容，不能假设修改持久
+- **端口 9880 残留进程**：存在用系统 Python 启动的旧服务进程占用端口，新服务绑定失败。
+  处理：`Stop-Process` 清理残留后重启（venv Python）
+
+### 验证
+
+- cross 音色 HTTP 合成：15.5s 音频 / 34.4s（RTF≈2.2）
+- 完整视频 `videos/cosy_cross_test.mp4`：12.1s / h264 1080x1920 / aac，全程 cosyvoice 引擎无回退
+
+---
+
 ## [2026-08-09] v1.2.16 make_video 接入本地 CosyVoice 引擎（免费好声音）
 
 ### 需求背景
