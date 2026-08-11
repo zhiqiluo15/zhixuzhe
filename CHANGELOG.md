@@ -21,6 +21,42 @@
 
 ---
 
+## [2026-08-09] Git 推送改为 SSH（github.com:443）+ 中文路径踩坑修复
+
+### 背景
+
+HTTPS push 反复失败（github.com:443 瞬时超时，重试 3 次仍失败），用户要求寻找更稳定的 push 方法。
+最终切换为 SSH over 443（`ssh.github.com:443`，国内网络比 22/HTTPS 更稳）。
+
+### 踩坑过程（两个连环坑）
+
+1. **`Permission denied (publickey)`**：`ssh -T` verbose 显示 "Server accepts key"（公钥被服务器接受）却仍 denied。
+   - 根因：私钥**带密码**（`aes256-ctr + bcrypt` 加密头）——早前生成密钥时 `ssh-keygen -N '""'` 在 PowerShell 中把**字面 `""`（两个双引号字符）当作密码**，而非空密码。
+   - 表现：不带 `-BatchMode` 时 ssh 卡住等密码输入（40s 无响应）；带 `-BatchMode` 时无法交互直接 denied。
+2. **`Host key verification failed`**：known_hosts 清理后 git 调 ssh 仍失败，verbose 发现 `~` 展开为 `/c/Users/\302\336\326\307\306\346/.ssh/`（"罗智奇"的 GBK 字节被当 UTF-8 解析）。
+   - 根因：git (MSYS) 环境下 **HOME 路径编码错乱**，只读了系统级 `/etc/ssh/ssh_config`，没读用户级 `~/.ssh/config`，密钥与 known_hosts 全部找不到。
+
+### 修复（三管齐下）
+
+1. **清除私钥密码**：`ssh-keygen -p -f <key> -P '""' -N ''`（旧密码=字面 `""`，新密码=`''` 真空字符串），验证 `ssh-keygen -y` 无提示直出公钥。
+2. **规避中文路径**：密钥复制到无中文路径 `C:\ssh-keys\`，`git config --global core.sshCommand "ssh -i C:/ssh-keys/id_ed25519 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=C:/ssh-keys/known_hosts"`——显式指定密钥与 known_hosts，绕开 MSYS 的 HOME 解析。
+3. **持久化 HOME**：`setx HOME "%USERPROFILE%"`（用户级环境变量，修复 MSYS 路径编码）。
+
+### 验证
+
+- `ssh -T git@github.com` → `Hi zhiqiluo15! You've successfully authenticated`（exit 1 为正常）
+- `git ls-remote origin HEAD` → 正确返回远端 HEAD，认证+传输全通
+- remote 已切换：`git@github.com:zhiqiluo15/zhixuzhe.git`，后续直接 `git push` 即可
+
+### 教训（重要）
+
+1. **PowerShell 里 `ssh-keygen -N '""'` 不是空密码**——单引号内是字面 `""` 两个字符。要空密码必须用 `-N ''`（空字符串）。
+2. **中文用户名路径在 git (MSYS) 下会编码错乱**（GBK 字节被当 UTF-8）：涉及 ssh 的路径配置（密钥、known_hosts、config）应放无中文路径，或用 `-i`/`-o UserKnownHostsFile` 显式指定。
+3. **`-BatchMode=yes` 是排查 SSH 认证的好工具**：私钥带密码时它让"等待交互"快速失败为 Permission denied，暴露加密问题。
+4. **"Server accepts key" 但仍 denied** 在 GitHub 上往往不是公钥问题，而是私钥侧无法完成签名（加密/损坏/密码）。
+
+---
+
 ## [2026-08-09] v1.3.8 智能聚焦+局部放大：画面自动聚焦主体内容，画中画保留全局
 
 ### 需求背景
