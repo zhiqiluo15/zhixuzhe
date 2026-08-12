@@ -84,13 +84,26 @@ class ContextCompressor:
 
         # reset 后 history 变短：摘要状态必须同步重置，防止索引错位
         if self._summarized_upto > len(history):
+            logger.warning(
+                f"上下文压缩状态与历史长度不一致"
+                f"（已摘要至第 {self._summarized_upto} 条，历史仅 {len(history)} 条），重置压缩状态"
+            )
             self.reset()
 
         cut = len(history) - self.keep_recent
         if cut > self._summarized_upto:
             # 有新增长的可压缩段，分块增量摘要（每次最多处理 2 个块，避免一次性过长）
             pending = history[self._summarized_upto:cut]
+            logger.debug(
+                f"上下文压缩: 历史 {len(history)} 条，本次可压缩 {len(pending)} 条"
+                f"（已摘要至第 {self._summarized_upto} 条，保留最近 {self.keep_recent} 条完整）"
+            )
             self._summarize_pending(pending)
+        else:
+            logger.debug(
+                f"上下文压缩: 历史 {len(history)} 条未达压缩阈值"
+                f"（已摘要至第 {self._summarized_upto} 条，保留最近 {self.keep_recent} 条完整）"
+            )
 
         if not self._summary:
             return [system] + history + [user_msg]
@@ -114,17 +127,34 @@ class ContextCompressor:
         """
         max_batch = self.summarize_chunk * 2
         processed = 0
+        chunks_done = 0
         while processed < len(pending) and processed < max_batch:
-            chunk = pending[processed:processed + self.summarize_chunk]
-            processed += len(chunk)
+            start = processed
+            chunk = pending[start:start + self.summarize_chunk]
+            processed = start + len(chunk)
             try:
                 new_summary = self._summarize_chunk(chunk)
             except Exception as e:
-                logger.warning(f"上下文摘要失败，跳过该块（不阻断主流程）: {e}")
+                logger.warning(
+                    f"上下文摘要失败，跳过该块（不阻断主流程）: {e}"
+                    f"（块 {start + 1}~{processed} / 本次待压缩 {len(pending)} 条）"
+                )
                 break
             if new_summary:
                 self._summary = new_summary[:self.max_summary_chars]
+                logger.debug(
+                    f"上下文摘要块 {start + 1}~{processed} 成功，合并后摘要 {len(self._summary)} 字符"
+                )
+            else:
+                logger.debug(
+                    f"上下文摘要块 {start + 1}~{processed} 返回空文本，仅推进指针（内容可能全为空消息）"
+                )
             self._summarized_upto += len(chunk)
+            chunks_done += 1
+        logger.info(
+            f"上下文压缩推进: 处理 {chunks_done} 块（本次 {len(pending)} 条中的 {processed} 条），"
+            f"已摘要至历史第 {self._summarized_upto} 条，摘要共 {len(self._summary)} 字符"
+        )
 
     def _summarize_chunk(self, chunk: list[Message]) -> str:
         """调用 Brain 合并摘要：已有摘要 + 新块 → 更新后的完整摘要"""
