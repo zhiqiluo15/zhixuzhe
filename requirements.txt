@@ -20,3 +20,8 @@ pyttsx3>=2.90
 #   国内源：pip install torch open_clip_torch -i https://pypi.tuna.tsinghua.edu.cn/simple
 torch>=2.13.0
 open_clip_torch>=3.3.0
+
+# 可选：语义检索（记忆检索向量化，无此依赖时自动降级纯关键词检索，不影响核心功能）
+#   首次检索自动下载 BGE 中文模型（约 100MB；下载慢可设 HF_ENDPOINT=https://hf-mirror.com）
+#   国内源：pip install sentence-transformers -i https://pypi.tuna.tsinghua.edu.cn/simple
+sentence-transformers>=3.0.0

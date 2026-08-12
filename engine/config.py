@@ -172,11 +172,22 @@ class TaskConfig:
 
 
 @dataclass
+class SemanticConfig:
+    """语义检索配置（向量嵌入 + RRF 融合，模型不可用时自动降级关键词检索）"""
+    enabled: bool = True
+    model_name: str = "BAAI/bge-small-zh-v1.5"  # 中文检索专用，约 100MB，首次调用自动下载
+    rrf_k: int = 60          # RRF 融合常数
+    min_similarity: float = 0.2  # 语义相似度下限（低于此分不进入候选）
+    top_k_per_source: int = 10   # 语义检索每来源候选条数
+
+
+@dataclass
 class MemoryConfig:
     min_score: float = 0.25
     max_entries: int = 3
     entry_max_chars: int = 300
     dedup_threshold: float = 0.7
+    semantic: SemanticConfig = field(default_factory=SemanticConfig)
 
 
 @dataclass
@@ -276,10 +287,16 @@ def load_config(path: Path | str | None = None) -> Config:
         })
 
     if "memory" in data:
-        cfg.memory = MemoryConfig(**{
+        memory_kwargs = {
             k: v for k, v in data["memory"].items()
-            if k in MemoryConfig.__dataclass_fields__
-        })
+            if k in MemoryConfig.__dataclass_fields__ and k != "semantic"
+        }
+        cfg.memory = MemoryConfig(**memory_kwargs)
+        if "semantic" in data["memory"]:
+            cfg.memory.semantic = SemanticConfig(**{
+                k: v for k, v in data["memory"]["semantic"].items()
+                if k in SemanticConfig.__dataclass_fields__
+            })
 
     if "logging" in data:
         cfg.logging = LoggingConfig(**{

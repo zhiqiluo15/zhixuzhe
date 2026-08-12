@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 from engine.config import config
+from engine.core.semantic import SemanticIndex, _rrf_fuse
 
 
 # ── 停用词 ──
@@ -170,20 +171,41 @@ class MemoryReader:
         self.knowledge_dir = root / "memory" / "knowledge" / "languages"
         self.MIN_SCORE = config.memory.min_score
         self.DEDUP_THRESHOLD = config.memory.dedup_threshold
+        # 语义检索层（懒加载，模型不可用时自动降级纯关键词）
+        sc = config.memory.semantic
+        self.semantic = SemanticIndex(
+            root=root,
+            model_name=sc.model_name,
+            enabled=sc.enabled,
+            min_similarity=sc.min_similarity,
+            top_k_per_source=sc.top_k_per_source,
+        )
 
     # ── 公开接口 ──
 
     def retrieve(self, query: str, max_entries: int = 5) -> list[dict]:
         """综合检索日记 + 经验 + 知识，返回去重后的 top-k 条目列表
 
+        关键词层（2-gram）与语义层（向量）RRF 融合：
+        - 语义层可用时，两路结果按排名融合，兼顾精确命中与语义相关
+        - 语义层不可用时，退化为纯关键词排序（与 v1.2 行为一致）
+
         每个条目格式：{"source": "diary"|"experience"|"knowledge", "date": str, "content": str, "score": float}
         """
-        results: list[dict] = []
-        results.extend(self.retrieve_diary(query, max_entries * 2))
-        results.extend(self.retrieve_experience(query, max_entries))
-        results.extend(self.retrieve_knowledge(query, max_entries))
-        results.sort(key=lambda r: r["score"], reverse=True)
-        return self._dedup(results, max_entries)
+        kw_results: list[dict] = []
+        kw_results.extend(self.retrieve_diary(query, max_entries * 2))
+        kw_results.extend(self.retrieve_experience(query, max_entries))
+        kw_results.extend(self.retrieve_knowledge(query, max_entries))
+
+        sem_results: list[dict] = []
+        if self.semantic.enabled and self.semantic.scan_and_update():
+            sem_results = self.semantic.search(query, max_entries * 3)
+
+        if sem_results:
+            fused = _rrf_fuse([kw_results, sem_results], k=config.memory.semantic.rrf_k)
+        else:
+            fused = sorted(kw_results, key=lambda r: r["score"], reverse=True)
+        return self._dedup(fused, max_entries)
 
     def retrieve_diary(self, query: str, top_k: int = 5) -> list[dict]:
         """仅检索日记"""

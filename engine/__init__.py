@@ -6,5 +6,5 @@
 升级版本号时只需修改此处，并在 CHANGELOG.md 顶部登记对应变更。
 """
 
-__version__ = "1.4.1"
+__version__ = "1.5.0"
 VERSION = __version__

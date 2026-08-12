@@ -12,6 +12,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from engine.core.recorder import Recorder
 
 
+@pytest.fixture(autouse=True)
+def _stable_semantic():
+    """默认禁用语义检索层：避免既有测试依赖 sentence-transformers 模型下载。
+    语义检索行为在 test_semantic.py 中注入 FakeEmbedder 单独覆盖，测试后恢复原值。"""
+    from engine.config import config
+    old = config.memory.semantic.enabled
+    config.memory.semantic.enabled = False
+    yield
+    config.memory.semantic.enabled = old
+
+
 @pytest.fixture
 def root() -> Path:
     """创建带测试数据的临时项目根目录"""

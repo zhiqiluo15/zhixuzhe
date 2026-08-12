@@ -31,10 +31,16 @@ task:
 
 # ── 记忆 ──
 memory:
-  min_score: 0.25             # 记忆检索最低相关度阈值
+  min_score: 0.25             # 记忆检索最低相关度阈值（关键词层）
   max_entries: 3              # 每次注入的最大记忆条数
   entry_max_chars: 300        # 单条记忆截断长度
   dedup_threshold: 0.7        # Jaccard 去重阈值
+  semantic:                   # 语义检索层（向量嵌入 + RRF 融合，可选）
+    enabled: true             # 是否启用（懒加载：首次检索才加载模型）
+    model_name: "BAAI/bge-small-zh-v1.5"  # 中文检索专用，约 100MB，首次调用自动下载
+    rrf_k: 60                 # RRF 融合常数（越大越倾向关键词，越小越倾向语义）
+    min_similarity: 0.2       # 语义相似度下限（低于此分不进入候选）
+    top_k_per_source: 10      # 语义检索每来源候选条数
 
 # ── 日志 ──
 logging:

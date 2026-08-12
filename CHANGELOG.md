@@ -21,6 +21,58 @@
 
 ---
 
+## [2026-08-12] v1.5.0 语义检索升级：记忆检索从 2-gram 关键词升级为向量 + RRF 融合
+
+### 需求背景
+
+v1.2 至今的记忆检索为纯 2-gram 关键词匹配（见 memory_reader.py 顶部注释"检索策略 v1，无外部依赖"），存在语义盲区：**同义改写、概念相关无法命中**。例如询问"训练"无法检索到含"微调"的 QLoRA 经验。CHANGELOG 多版本将该升级标注为 P2 远期项，本次落地（对齐主流 RAG 做法：向量检索 + 关键词检索融合）。
+
+### 方案：向量层 + RRF 融合（可选增强，绝不阻断）
+
+新增 [semantic.py](file:///t:/zhixuzhe/engine/core/semantic.py) `SemanticIndex`：
+
+1. **向量层**：懒加载 sentence-transformers 的 **BGE 中文检索模型**（`BAAI/bge-small-zh-v1.5`，约 100MB，中文检索专用），条目与查询归一化编码后做余弦检索
+2. **增量缓存**：向量持久化到 `.runtime/memory_semantic.json`（该目录已被 .gitignore 隔离，不会推送 GitHub）；按条目内容 hash 只对**变更条目**重新嵌入，删除条目自动清理
+3. **RRF 融合**：关键词层 top-k 与语义层 top-k 按排名融合（`1/(k+rank)`），规避两套分数量纲不一致的调参难题；语义层不可用时**跳过融合**，行为与 v1.2 完全一致
+
+### 三层降级防线（与 v1.4 压缩同哲学）
+
+| 场景 | 行为 |
+|------|------|
+| 未安装 sentence-transformers | 捕获 ImportError → 记 warning → 永久降级纯关键词 |
+| 模型下载/加载失败 | 记录 `_model_error` 后不再重试 → 降级纯关键词，不阻断对话 |
+| `memory.semantic.enabled=false` | 完全关闭，零开销 |
+
+### 集成
+
+- [memory_reader.py](file:///t:/zhixuzhe/engine/core/memory_reader.py#L186-L208)：`retrieve()` 改为「关键词结果 + 语义结果 RRF 融合 → 去重」；`MemoryReader.__init__` 创建 `SemanticIndex`（读 `config.memory.semantic`）
+- [config.py](file:///t:/zhixuzhe/engine/config.py#L174-L182) + [config.yaml](file:///t:/zhixuzhe/config.yaml#L38-L43)：新增 `memory.semantic` 段（enabled / model_name / rrf_k / min_similarity / top_k_per_source）
+- [requirements.txt](file:///t:/zhixuzhe/requirements.txt#L24-L27)：登记可选依赖 `sentence-transformers`（风格与 CLIP 一致，缺依赖不影响核心功能）
+- 循环依赖处理：semantic 与 memory_reader 相互引用，`semantic._collect_entries` 用**局部导入**打破模块级循环
+
+### 验证
+
+- 新增 [test_semantic.py](file:///t:/zhixuzhe/engine/tests/test_semantic.py) 9 个用例（FakeEmbedder 模拟嵌入，零网络依赖）：
+  - RRF 融合排序（两路重叠条目排第一）
+  - 增量索引：无变更不重嵌入 / 仅嵌新增条目
+  - 缓存持久化：重建实例不重嵌入
+  - **语义命中**：query「微调」命中含「训练」条目（无共同字符）
+  - 低相似度过滤 / enabled=false / 模型加载失败降级
+  - MemoryReader 集成：语义启用时命中 QLoRA 经验、禁用时不命中（同一 query 对比）
+- conftest 新增 autouse fixture 默认禁用语义层，保证既有测试确定性（不依赖模型下载）
+- **全量 122/122 测试通过**（113 原有 + 9 新增），无回归
+
+### 使用说明
+
+首次语义检索自动下载 BGE 模型（约 100MB）。下载慢可设环境变量 `HF_ENDPOINT=https://hf-mirror.com`。模型加载失败会在日志 warning 中给出提示，功能自动降级，用户无感。
+
+### 遗留（远期）
+
+- 缓存无过期策略（记忆条目 hash 不变即视为最新，配合 Recorder 只增不删的语义足够）
+- 若后续记忆量达数千条，可考虑条目级 lazy 检索 + 向量压缩（当前数百条全量内存计算无压力）
+
+---
+
 ## [2026-08-12] v1.4.1 上下文压缩日志补强（排查摘要失败/合并异常）
 
 ### 需求背景
