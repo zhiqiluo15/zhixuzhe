@@ -68,6 +68,24 @@ python engine/tools/detect_host.py
 python engine/tools/verify_gpu.py
 ```
 
+## 可选增强：语义检索（按需启用）
+
+记忆检索默认走轻量的 2-gram 关键词匹配，**零依赖零下载**即可正常使用。
+当记忆量积累到数百条、出现"聊过但检索不到"的场景时，可启用向量语义检索：
+
+```bash
+# 1. 安装依赖（torch 通常已随项目安装）
+python -m pip install sentence-transformers -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 2. 首次检索时自动下载 BGE 中文模型（约 100MB）
+#    下载慢可设镜像：
+$env:HF_ENDPOINT = 'https://hf-mirror.com'   # PowerShell
+```
+
+- 配置开关：`config.yaml` → `memory.semantic`（默认 `enabled: true`，懒加载）
+- 未安装/下载失败时**自动降级**为关键词检索，不影响任何功能
+- 效果：向量与关键词结果 RRF 融合，同义改写、概念相关（如"训练"↔"微调"）也能命中
+
 ## 发布一个进化版
 
 只发布引擎与公共日志，灵魂层被 .gitignore 强制隔离：
