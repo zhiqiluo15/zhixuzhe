@@ -9,6 +9,9 @@ from datetime import datetime
 from pathlib import Path
 
 from engine.brain.base import Message
+from engine.log import get_logger
+
+logger = get_logger(__name__)
 
 
 def _deserialize(d: dict) -> Message:
@@ -60,6 +63,36 @@ class HistoryStore:
         )
         return files[-1] if files else None
 
+    @staticmethod
+    def _session_date(path: Path) -> str:
+        """从会话文件名提取日期（文件名前缀 YYYYMMDD）"""
+        return Path(path).stem[:8]
+
+    def ensure_today_session(self, path: Path | None = None) -> Path:
+        """确保会话文件归属当天，返回实际使用的会话文件。
+
+        跨天问题：恢复最近会话后，新对话会覆盖写入旧日期的文件，
+        导致"今天的对话沉淀在昨天的文件里"（文件名永远是旧日期，
+        按天回溯时误以为丢失）。修复：当最近会话文件日期不是今天时，
+        开今天的新会话文件并把历史迁移过去（旧文件保持原样归档）。
+        """
+        target = path or self.latest_session()
+        if target is None:
+            return self.new_session()
+        if self._session_date(target) == datetime.now().strftime("%Y%m%d"):
+            self._current = target
+            return target
+        # 跨天归档：新文件先承载迁移的历史，旧文件原样保留
+        new = self.new_session()
+        messages = self.load(target)
+        if messages:
+            self.save(messages)
+        logger.info(
+            f"跨天归档会话: {Path(target).name} → {self._current.name}"
+            f"（{len(messages)} 条历史迁移至今天）"
+        )
+        return self._current
+
     def save(self, messages: list[Message]) -> None:
         """保存当前完整历史到会话文件（原子写入，失败回退）。
 
@@ -67,9 +100,6 @@ class HistoryStore:
         写入采用临时文件 + rename，防止进程崩溃在写一半损坏会话文件。
         Windows 上若 .tmp 文件被锁定（杀软扫描/残留），回退到直接覆盖写。
         """
-        import logging
-        _logger = logging.getLogger("zhixuzhe.engine.core.history")
-
         if self._current is None:
             self.new_session()
         # 空历史不写入，避免残留空文件
@@ -91,7 +121,7 @@ class HistoryStore:
             tmp.replace(self._current)  # 原子 rename（同卷）
         except PermissionError as e:
             # Windows 上 tmp 文件被锁定时（杀软/其他进程），回退到直接写
-            _logger.warning(f"原子写入失败（{e}），回退到直接写入")
+            logger.warning(f"原子写入失败（{e}），回退到直接写入")
             try:
                 with open(self._current, "w", encoding="utf-8") as f:
                     for msg in messages:
@@ -103,7 +133,7 @@ class HistoryStore:
                 except OSError:
                     pass
             except OSError as e2:
-                _logger.error(f"历史保存失败: {e2}")
+                logger.error(f"历史保存失败: {e2}")
 
     def load(self, filepath: Path) -> list[Message]:
         """从 JSONL 文件加载消息列表，跳过损坏行"""
@@ -116,8 +146,7 @@ class HistoryStore:
                 try:
                     messages.append(_deserialize(json.loads(line)))
                 except (json.JSONDecodeError, KeyError) as e:
-                    import logging
-                    logging.getLogger("zhixuzhe.engine.core.history").warning(
+                    logger.warning(
                         f"跳过损坏行 {filepath.name}:{i + 1} — {e}"
                     )
         return messages

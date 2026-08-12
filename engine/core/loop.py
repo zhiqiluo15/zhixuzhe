@@ -110,13 +110,14 @@ class Agent:
             brain, tools, recorder, skill_registry, memory_manager,
         )
 
-        # 尝试恢复上次会话
+        # 尝试恢复上次会话（跨天时自动归档旧文件，今天的对话落到今天的新文件）
         if history_store:
             latest = history_store.latest_session()
             if latest:
-                self.history = history_store.load(latest)
-                history_store.set_current_session(latest)
-                logger.info(f"已恢复会话: {latest.name}（{len(self.history)} 条消息）")
+                current = history_store.ensure_today_session(latest)
+                self.history = history_store.load(current)
+                history_store.set_current_session(current)
+                logger.info(f"已恢复会话: {current.name}（{len(self.history)} 条消息）")
             else:
                 current = history_store.new_session()
                 logger.info(f"无历史会话，新建: {current.name}")
