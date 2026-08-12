@@ -57,6 +57,45 @@ HTTPS push 反复失败（github.com:443 瞬时超时，重试 3 次仍失败）
 
 ---
 
+## [2026-08-09] v1.3.9 路由与工具调用日志增强 + 异常防线
+
+### 需求背景
+
+用户反馈运行时异常排查不便，要求在核心路由和工具调用逻辑里补充详细日志。
+
+### 现状核实（改动前代码审计）
+
+| 位置 | 改动前状态 |
+|------|-----------|
+| [router.py](file:///t:/zhixuzhe/engine/core/router.py) Router.route() | **完全无日志**——意图→命中→技能决策全黑箱 |
+| [react.py](file:///t:/zhixuzhe/engine/core/react.py) 工具循环 | 只有调用前 debug（工具名+参数）；无执行结果/耗时/拒绝记录 |
+| [registry.py](file:///t:/zhixuzhe/engine/tools/registry.py) Tool.execute() | 已有异常兜底+重试（不击穿），但失败详情只进返回值**不打日志** |
+
+### 修改
+
+1. **router.py**：`route()` 补全路由决策日志——命中技能记 `info`（含意图+技能名）；未命中回退 LLM 记 `debug`
+2. **react.py**：工具执行段重构——
+   - 新增执行耗时统计（`perf_counter`）
+   - 结果三态日志：被拒（debug）/ 失败（error，含结果摘要）/ 成功（debug，含耗时+200 字符预览）
+   - 新增**最后防线 try/except**：`Tool.execute` 内部已兜底重试，此处防御未来新增工具绕过重试抛出意外异常，避免击穿 ReAct 循环（记 `logger.exception` 完整堆栈）
+3. **registry.py**：
+   - `Tool.execute()` 成功记 debug（耗时）；失败记 `error` + `exc_info=True` 完整堆栈（含第几次尝试、异常类型）
+   - `ToolRegistry.execute()` 调用未知工具记 `warning`（列出可用工具）
+
+### 日志级别策略
+
+- **info**：路由命中（关键决策，量小）
+- **warning**：未知工具调用（异常情况）
+- **error**：工具执行失败/意外异常（需关注，进控制台+文件）
+- **debug**：调用参数、成功结果、耗时、路由未命中（仅文件日志，不污染控制台）
+
+### 验证
+
+- 105/105 单元测试全部通过，无回归
+- 敏感参数（run_shell 命令等）进 `logs/` 无泄漏风险（已被 gitignore + pre-push 守卫双重隔离）
+
+---
+
 ## [2026-08-09] v1.3.8 智能聚焦+局部放大：画面自动聚焦主体内容，画中画保留全局
 
 ### 需求背景

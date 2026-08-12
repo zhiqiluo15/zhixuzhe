@@ -3,6 +3,10 @@
 import time
 from typing import Callable
 
+from engine.log import get_logger
+
+logger = get_logger(__name__)
+
 
 class Tool:
     """单个工具（支持自动重试）"""
@@ -28,11 +32,21 @@ class Tool:
     def execute(self, **kwargs) -> str:
         last_error = None
         attempts = self.max_retries + 1
+        _t0 = time.perf_counter()
         for attempt in range(attempts):
             try:
-                return str(self.func(**kwargs))
+                result = str(self.func(**kwargs))
+                elapsed_ms = (time.perf_counter() - _t0) * 1000
+                logger.debug(f"工具执行成功: {self.name} 耗时={elapsed_ms:.0f}ms")
+                return result
             except Exception as e:
                 last_error = e
+                # exc_info=True 记录完整堆栈，方便排查工具内部错误
+                logger.error(
+                    f"工具执行失败: {self.name} 第{attempt + 1}次尝试 "
+                    f"{type(e).__name__}: {e}",
+                    exc_info=True,
+                )
                 if attempt < self.max_retries:
                     wait = 2 ** attempt  # 指数退避: 1s, 2s, 4s
                     time.sleep(wait)
@@ -66,6 +80,7 @@ class ToolRegistry:
     def execute(self, name: str, **kwargs) -> str:
         tool = self._tools.get(name)
         if tool is None:
+            logger.warning(f"调用未知工具: {name}（可用: {', '.join(self._tools)}）")
             return f"未知工具: {name}（可用工具: {', '.join(self._tools)})"
         return tool.execute(**kwargs)
 

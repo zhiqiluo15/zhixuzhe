@@ -7,6 +7,7 @@ Agent 普通对话和 TaskRunner 步骤执行共用此循环，
 """
 
 import json
+import time
 from typing import Callable
 
 from engine.brain.base import Brain, Message
@@ -100,10 +101,25 @@ def react_loop(
                     "tool_name": name, "args": args, "round": round_i + 1,
                 })
 
-            if confirm_callback is not None and not confirm_callback(name, args):
-                result = f"[已取消] 用户拒绝了工具调用: {name}"
+            _t0 = time.perf_counter()
+            try:
+                if confirm_callback is not None and not confirm_callback(name, args):
+                    result = f"[已取消] 用户拒绝了工具调用: {name}"
+                else:
+                    result = tools.execute(name, **args)
+            except Exception as e:
+                # 最后防线：Tool.execute 内部已有兜底，这里防御未来新增工具
+                # 绕过重试机制抛出的意外异常，避免击穿 ReAct 循环。
+                logger.exception(f"工具执行意外异常 [轮次 {round_i + 1}]: {name}")
+                result = f"[工具异常] {name} 执行失败: {type(e).__name__}: {e}"
+            elapsed_ms = (time.perf_counter() - _t0) * 1000
+
+            if result.startswith("[已取消]"):
+                logger.debug(f"工具被拒 [轮次 {round_i + 1}]: {name}（用户拒绝）")
+            elif result.startswith("[工具异常]") or result.startswith("工具执行失败"):
+                logger.error(f"工具失败 [轮次 {round_i + 1}]: {name} 耗时={elapsed_ms:.0f}ms 结果={result[:200]}")
             else:
-                result = tools.execute(name, **args)
+                logger.debug(f"工具成功 [轮次 {round_i + 1}]: {name} 耗时={elapsed_ms:.0f}ms 结果预览={result[:200]!r}")
 
             max_chars = config.agent.max_tool_output_chars
             truncated = len(result) > max_chars

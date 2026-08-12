@@ -7,6 +7,9 @@ Router 是 route+skill 架构的"route"部分。
 
 from engine.skills.registry import SkillRegistry
 from engine.skills.base import Skill
+from engine.log import get_logger
+
+logger = get_logger(__name__)
 
 
 class Router:
@@ -28,4 +31,9 @@ class Router:
         Returns:
             匹配到的技能实例，无匹配返回 None
         """
-        return self.registry.match(intent)
+        skill = self.registry.match(intent)
+        if skill is not None:
+            logger.info(f"路由命中: 意图=\"{intent}\" → 技能={skill.name}")
+        else:
+            logger.debug(f"路由未命中: 意图=\"{intent}\" → 回退 LLM 即兴规划")
+        return skill
