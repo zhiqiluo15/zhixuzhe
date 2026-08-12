@@ -147,11 +147,21 @@ class ModelConfig:
 
 
 @dataclass
+class ContextConfig:
+    """上下文压缩配置（长对话自动摘要，控制输入 token 成本）"""
+    enabled: bool = True
+    keep_recent: int = 20       # 保留最近完整消息条数（对话连续性）
+    summarize_chunk: int = 10   # 累计新增多少条旧消息触发一次摘要
+    max_summary_chars: int = 1500  # 摘要文本上限（超出截断）
+
+
+@dataclass
 class AgentConfig:
     max_tool_rounds: int = 10
     max_tool_output_chars: int = 32000
     confirm_tools: list[str] = field(default_factory=lambda: ["run_shell"])
     auto_task: bool = True
+    context: ContextConfig = field(default_factory=ContextConfig)
 
 
 @dataclass
@@ -248,10 +258,16 @@ def load_config(path: Path | str | None = None) -> Config:
         })
 
     if "agent" in data:
-        cfg.agent = AgentConfig(**{
+        agent_kwargs = {
             k: v for k, v in data["agent"].items()
-            if k in AgentConfig.__dataclass_fields__
-        })
+            if k in AgentConfig.__dataclass_fields__ and k != "context"
+        }
+        cfg.agent = AgentConfig(**agent_kwargs)
+        if "context" in data["agent"]:
+            cfg.agent.context = ContextConfig(**{
+                k: v for k, v in data["agent"]["context"].items()
+                if k in ContextConfig.__dataclass_fields__
+            })
 
     if "task" in data:
         cfg.task = TaskConfig(**{

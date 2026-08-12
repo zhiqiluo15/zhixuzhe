@@ -17,6 +17,11 @@ agent:
   max_tool_output_chars: 32000 # 单次工具输出截断长度
   confirm_tools: [run_shell, batch_files]   # 需要 HITL 确认的工具（batch_files 是批量破坏性操作，必须人审）
   auto_task: true             # 普通对话中让 Brain 判断是否自动升级为任务模式（多一步轻量 API 调用）
+  context:                    # 上下文压缩：长对话自动摘要，控制输入 token 成本
+    enabled: true             # 是否启用
+    keep_recent: 20           # 保留最近完整消息条数（对话连续性）
+    summarize_chunk: 10       # 累计新增多少条旧消息触发一次摘要（防抖）
+    max_summary_chars: 1500   # 摘要文本上限（超出截断）
 
 # ── 任务模式 ──
 task:

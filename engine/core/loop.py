@@ -15,6 +15,7 @@ from engine.skills.registry import SkillRegistry
 from engine.core.recorder import Recorder
 from engine.core.react import react_loop, ConfirmCallback, StreamCallback, ToolEventCallback
 from engine.core.task import TaskRunner
+from engine.core.compress import ContextCompressor
 from engine.core.history import HistoryStore
 from engine.core.memory_manager import MemoryManager
 from engine.core.taxonomy import TaxonomyManager
@@ -96,6 +97,15 @@ class Agent:
         self.profile_manager = profile_manager
         self.history: list[Message] = []
         self.system = Message(role="system", content=SYSTEM_PROMPT)
+        # 上下文压缩器：长对话自动摘要，控制输入 token 成本（完整历史仍持久化）
+        cc = config.agent.context
+        self.compressor = ContextCompressor(
+            brain=brain,
+            keep_recent=cc.keep_recent,
+            summarize_chunk=cc.summarize_chunk,
+            max_summary_chars=cc.max_summary_chars,
+            enabled=cc.enabled,
+        )
         self.task_runner = TaskRunner(
             brain, tools, recorder, skill_registry, memory_manager,
         )
@@ -232,7 +242,8 @@ class Agent:
                     content=self.system.content + "\n\n" + ctx,
                 )
 
-        messages = [system_msg] + self.history + [user_msg]
+        # 上下文压缩：历史超阈值时由摘要代表最早的对话（完整历史仍持久化）
+        messages = self.compressor.build(self.history, system_msg, user_msg)
 
         # 流式回调：未指定时用 terminal 打印
         if stream_callback is None:
@@ -312,6 +323,7 @@ class Agent:
                 break
             if user_input.lower() == "reset":
                 self.history.clear()
+                self.compressor.reset()
                 if self.history_store:
                     old_name = self.history_store.current_session_name or "?"
                     new = self.history_store.new_session()

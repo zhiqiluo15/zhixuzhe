@@ -21,6 +21,51 @@
 
 ---
 
+## [2026-08-12] v1.4.0 上下文压缩：长对话自动摘要（补齐最痛短板）
+
+### 需求背景
+
+CHANGELOG v1.3.9 的主流 harness 差距评估将「上下文管理」列为当前**最痛短板**（🔴 大）：
+此前无任何压缩机制，普通对话的 `Agent.history` 无限增长，每次 `brain.think()` 把**全部历史**发送给模型——输入 token 随对话轮次线性膨胀，成本、延迟、模型上下文占用同步恶化。主流 harness（Claude Code 等）的成熟方案是「摘要压缩」，本次按此方向补齐。
+
+### 方案：增量分层摘要（对齐主流做法 + 契合智序者记忆哲学）
+
+新增 [compress.py](file:///t:/zhixuzhe/engine/core/compress.py) `ContextCompressor`：
+
+1. **保留最近 `keep_recent`（默认 20）条完整消息**——对话连续性由 Brain 直接可见的近期上下文保证
+2. **更早的消息按 `summarize_chunk`（默认 10）条粒度分块**，由 Brain 增量压缩为一段「历史对话摘要」
+3. **增量合并**：每次摘要把「已有摘要 + 新块」一起给 Brain 产出合并后的完整摘要（单一文本，避免多段拼接），已压缩部分绝不重复摘要（`_summarized_upto` 指针）
+4. **摘要作为 system 消息注入**：`【历史对话摘要】` 区块放在系统提示之后、保留历史之前
+5. **完整历史仍由 HistoryStore 持久化**——压缩只影响"发送给模型的上下文"，会话文件、记忆可视化页面、重启恢复全部不受影响；与记忆检索注入（MemoryManager）正交互补：重要信息本已被 Recorder 沉淀到灵魂层，摘要负责兜底"未被沉淀的过渡性上下文"
+
+### 安全设计（三层防线）
+
+- **失败降级**：摘要调用异常 → 跳过该块、返回原样消息列表，绝不阻断对话主流程
+- **长度上限**：摘要文本截断至 `max_summary_chars`（默认 1500 字符），防摘要自身撑爆上下文
+- **单次批量上限**：一次 build 最多处理 2 块（防恢复超长会话时一次性注入过多消息），剩余留待下次
+
+### 集成
+
+- [loop.py](file:///t:/zhixuzhe/engine/core/loop.py)：`Agent.run()` 构建 messages 改走 `compressor.build()`；`reset` 命令同步 `compressor.reset()` 清空摘要状态（防止历史清空后索引错位）
+- [config.yaml](file:///t:/zhixuzhe/config.yaml#L20-L24) + [config.py](file:///t:/zhixuzhe/engine/config.py#L149-L164)：新增 `agent.context` 配置段（`ContextConfig`），`enabled` 开关可整体关闭
+- 任务模式（TaskRunner）每次步骤是独立 system 提示词，不携带累积历史，无长上下文问题，不受影响；Web 端经 `Agent.run()` 透明生效，零改动
+
+### 验证
+
+- 新增 [test_compress.py](file:///t:/zhixuzhe/engine/tests/test_compress.py) 7 个用例：短历史不压缩 / 超阈值触发 / 增量合并（断言 Brain 收到已有摘要）/ 保留窗口（最早超限段被摘要、最近 keep_recent 条完整）/ reset 重置 / disabled 原样返回 / 摘要失败降级
+- **全量 112/112 测试通过**（105 原有 + 7 新增），无回归
+- 配置加载验证：`enabled=True keep=20 chunk=10 max=1500` 正确
+
+### 成本量化（示意）
+
+50 条历史、keep=20：压缩前每轮发 50 条（约 2.5k~5k token）；压缩后发「摘要（≤1.5k）+ 最近 20 条」，且摘要只在累计新增 10 条时调用一次 Brain，增量成本 ≈ 1 次摘要调用 / 5 轮对话，长期远小于逐轮发送全部历史。
+
+### 遗留（远期）
+
+- 摘要为内存态，重启后对恢复的长历史重新摘要一次（成本可接受）；若后续发现重启频繁触发大摘要，可考虑把摘要写入会话文件持久化（YAGNI，暂不做）
+
+---
+
 ## [2026-08-09] Git 推送改为 SSH（github.com:443）+ 中文路径踩坑修复
 
 ### 背景
