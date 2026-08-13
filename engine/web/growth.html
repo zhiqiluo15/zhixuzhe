@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智序者 - 成长 v__ZX_VERSION__</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #03030d;
+  color: #d0d0d0;
+  min-height: 100vh;
+  padding: 0 20px 40px;
+}
+
+/* ── 顶部栏 ── */
+.topbar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 18px 0; border-bottom: 1px solid rgba(167,139,250,0.08);
+  margin-bottom: 24px; flex-wrap: wrap;
+}
+.topbar a {
+  color: #a78bfa; text-decoration: none; font-size: 13px;
+  padding: 6px 14px; border-radius: 7px;
+  border: 1px solid rgba(167,139,250,0.15);
+  transition: all 0.2s;
+}
+.topbar a:hover { background: rgba(167,139,250,0.12); }
+.topbar h1 {
+  font-size: 20px; font-weight: 600;
+  background: linear-gradient(135deg, #a78bfa, #60a5fa);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.topbar .badge {
+  font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  background: rgba(167,139,250,0.12); color: #8b83ba;
+}
+
+/* ── 引导语 ── */
+.intro {
+  font-size: 13px; color: #888; line-height: 1.8;
+  background: rgba(16,16,32,0.4); border: 1px solid rgba(167,139,250,0.06);
+  border-radius: 12px; padding: 14px 18px; margin-bottom: 22px;
+}
+.intro strong { color: #c4b5fd; }
+
+/* ── 概览卡片 ── */
+.stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px; margin-bottom: 24px;
+}
+.stat-card {
+  background: rgba(16,16,32,0.6); border: 1px solid rgba(167,139,250,0.08);
+  border-radius: 12px; padding: 16px 20px; text-align: center;
+}
+.stat-card .num {
+  font-size: 26px; font-weight: 700;
+  background: linear-gradient(135deg, #a78bfa, #60a5fa);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.stat-card .label { font-size: 11px; color: #666; margin-top: 4px; }
+
+/* ── 时间线 ── */
+.section-title {
+  font-size: 15px; color: #c4b5fd; font-weight: 600;
+  margin: 28px 0 14px; display: flex; align-items: center; gap: 8px;
+}
+.panel {
+  background: rgba(16,16,32,0.6); border: 1px solid rgba(167,139,250,0.08);
+  border-radius: 14px; padding: 18px 20px;
+}
+
+.timeline { position: relative; padding-left: 24px; }
+.timeline::before {
+  content: ''; position: absolute; left: 8px; top: 4px; bottom: 4px;
+  width: 2px; background: rgba(167,139,250,0.15);
+}
+.tl-item { position: relative; margin-bottom: 20px; }
+.tl-item:last-child { margin-bottom: 0; }
+.tl-dot {
+  position: absolute; left: -22px; top: 6px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #0d0d1a; border: 2px solid;
+}
+.tl-dot.reuse { border-color: #60a5fa; }
+.tl-dot.experience { border-color: #a78bfa; }
+
+.tl-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tl-tag {
+  font-size: 11px; padding: 2px 10px; border-radius: 10px;
+  font-weight: 600;
+}
+.tl-tag.reuse { background: rgba(96,165,250,0.12); color: #60a5fa; }
+.tl-tag.experience { background: rgba(167,139,250,0.14); color: #a78bfa; }
+.tl-time { font-size: 11px; color: #555; font-family: "Cascadia Code", Consolas, monospace; }
+
+.tl-body { margin-top: 8px; padding-left: 2px; }
+.tl-query {
+  font-size: 13px; color: #c4b5fd;
+  background: rgba(96,165,250,0.06); border-left: 3px solid rgba(96,165,250,0.4);
+  padding: 6px 12px; border-radius: 0 8px 8px 0; margin-bottom: 8px;
+}
+.tl-hits { display: flex; flex-direction: column; gap: 6px; }
+.tl-hit {
+  font-size: 12px; color: #999; line-height: 1.6;
+  background: rgba(0,0,0,0.2); border-radius: 8px; padding: 8px 12px;
+}
+.tl-hit .src {
+  font-size: 10px; padding: 1px 7px; border-radius: 8px; margin-right: 6px;
+  background: rgba(167,139,250,0.12); color: #a78bfa;
+}
+.tl-hit .src.diary { color: #34d399; background: rgba(52,211,153,0.12); }
+.tl-hit .src.knowledge { color: #fbbf24; background: rgba(251,191,36,0.12); }
+.tl-hit .score { color: #555; margin-left: 6px; font-family: "Cascadia Code", Consolas, monospace; font-size: 10px; }
+.tl-scene { font-size: 13px; color: #bbb; margin-bottom: 6px; }
+.tl-scene .lbl { color: #666; font-size: 11px; margin-right: 6px; }
+.tl-lesson {
+  font-size: 12.5px; color: #9ca3af; line-height: 1.7;
+  background: rgba(167,139,250,0.05); border-left: 3px solid rgba(167,139,250,0.3);
+  padding: 8px 12px; border-radius: 0 8px 8px 0;
+}
+.tl-lesson .lbl { color: #a78bfa; font-size: 11px; margin-right: 6px; }
+
+/* ── 空状态 ── */
+.empty-state { text-align: center; padding: 50px 20px; color: #555; font-size: 13px; line-height: 2; }
+.empty-state strong { color: #c4b5fd; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>智序者 zhixuzhe</h1>
+  <span class="badge">v__ZX_VERSION__</span>
+  <a href="/">← 返回对话</a>
+  <a href="/memory">🧠 记忆</a>
+  <a href="/knowledge">📚 知识库</a>
+  <a href="/profile">学习面板</a>
+  <a href="/genome">🧬 基因层</a>
+</div>
+
+<div class="intro">
+  <strong>成长 = 沉淀 + 复用。</strong>智序者把每次踩坑沉淀成「经验」，并在之后的对话里自动想起、复用它们。
+  下面是它「积累了什么」和「什么时候用上了」的真实轨迹——这就是它区别于普通工具的地方：<strong>不是记住你的数据，是记住你的教训，然后越用越懂你。</strong>
+</div>
+
+<!-- 概览 -->
+<div class="stats" id="stats">
+  <div class="stat-card"><div class="num">—</div><div class="label">经验（教训）</div></div>
+  <div class="stat-card"><div class="num">—</div><div class="label">日记（交互）</div></div>
+  <div class="stat-card"><div class="num">—</div><div class="label">知识（外部学习）</div></div>
+  <div class="stat-card"><div class="num">—</div><div class="label">记忆复用次数</div></div>
+</div>
+
+<!-- 时间线 -->
+<div class="section-title">🌱 成长时间线</div>
+<div class="panel">
+  <div class="timeline" id="timeline">
+    <div class="empty-state">加载中...</div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════
+//  概览 + 时间线
+// ════════════════════════════════════
+const SRC_LABEL = { diary: '日记', experience: '经验', knowledge: '知识' };
+
+async function loadGrowth() {
+  try {
+    const resp = await fetch('/growth/timeline');
+    const d = await resp.json();
+    renderStats(d.stats || {});
+    renderTimeline(d.events || [], d.stats || {});
+  } catch(e) {
+    document.getElementById('timeline').innerHTML =
+      '<div class="empty-state" style="color:#f87171">加载失败: ' + esc(String(e)) + '</div>';
+  }
+}
+
+function renderStats(s) {
+  const nums = [
+    s.experience ?? 0,
+    s.diary ?? 0,
+    s.knowledge ?? 0,
+    s.reuse ?? 0,
+  ];
+  document.querySelectorAll('#stats .num').forEach((el, i) => { el.textContent = nums[i]; });
+}
+
+function renderTimeline(events, stats) {
+  const box = document.getElementById('timeline');
+  if (!events || events.length === 0) {
+    box.innerHTML = `
+      <div class="empty-state">
+        <strong>还没有成长轨迹。</strong><br>
+        去和智序者对话，让它记住你的偏好、踩过的坑；<br>
+        下次再问同类问题，它会主动想起——那一刻就会出现在这里。
+      </div>`;
+    return;
+  }
+
+  box.innerHTML = events.map(ev => {
+    if (ev.type === 'reuse') return renderReuse(ev);
+    if (ev.type === 'experience') return renderExperience(ev);
+    return '';
+  }).join('');
+}
+
+function renderReuse(ev) {
+  const hits = (ev.hits || []).map(h => {
+    const src = SRC_LABEL[h.source] || h.source;
+    return `
+      <div class="tl-hit">
+        <span class="src ${esc(h.source)}">${esc(src)}</span>
+        <span>${esc(h.date || '')}</span>
+        <span class="score">相关度 ${h.score ?? ''}</span><br>
+        ${esc(h.preview || '')}
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="tl-item">
+      <div class="tl-dot reuse"></div>
+      <div class="tl-head">
+        <span class="tl-tag reuse">🔁 记忆复用</span>
+        <span class="tl-time">${esc(fmtTs(ev.ts))}</span>
+      </div>
+      <div class="tl-body">
+        <div class="tl-query">问：「${esc(ev.query || '')}」→ 想起了 ${(ev.hits || []).length} 条相关记忆</div>
+        <div class="tl-hits">${hits}</div>
+      </div>
+    </div>`;
+}
+
+function renderExperience(ev) {
+  return `
+    <div class="tl-item">
+      <div class="tl-dot experience"></div>
+      <div class="tl-head">
+        <span class="tl-tag experience">💡 经验沉淀</span>
+        <span class="tl-time">${esc(ev.date || '')} ${esc(ev.time || '')}</span>
+      </div>
+      <div class="tl-body">
+        <div class="tl-scene"><span class="lbl">场景</span>${esc(ev.scene || '')}</div>
+        <div class="tl-lesson"><span class="lbl">教训</span>${esc(ev.lesson || '')}</div>
+      </div>
+    </div>`;
+}
+
+function fmtTs(ts) {
+  if (!ts) return '';
+  // ISO 时间戳去掉秒级 T 分隔符，便于阅读
+  return ts.replace('T', ' ');
+}
+
+// ════════════════════════════════════
+//  工具函数
+// ════════════════════════════════════
+function esc(s) {
+  const div = document.createElement('div');
+  div.textContent = s == null ? '' : String(s);
+  return div.innerHTML;
+}
+
+loadGrowth();
+</script>
+</body>
+</html>

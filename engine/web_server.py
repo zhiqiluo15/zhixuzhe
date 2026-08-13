@@ -338,6 +338,107 @@ def _load_memory_entry(kind: str, file: str, index: int) -> dict | None:
     return {"file": file, "index": index, "title": e["title"], "body": e["body"]}
 
 
+def _load_growth_reuse() -> list[dict]:
+    """读取记忆复用事件（.runtime/growth_reuse.jsonl，倒序）"""
+    path = ROOT / ".runtime" / "growth_reuse.jsonl"
+    events: list[dict] = []
+    if not path.exists():
+        return events
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except OSError:
+        pass
+    events.reverse()  # 最新在前
+    return events
+
+
+def _load_experience_events() -> list[dict]:
+    """扫描 memory/experience/，逐条返回经验沉淀事件（用于成长时间线）"""
+    exp_dir = ROOT / "memory" / "experience"
+    events: list[dict] = []
+    if not exp_dir.exists():
+        return events
+    for f in sorted(exp_dir.glob("*.md"), reverse=True):
+        m = re.match(r"(\d{4})(\d{2})(\d{2})", f.name)
+        date_str = f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else ""
+        try:
+            content = f.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for e in parse_markdown_entries(content):
+            scene = ""
+            lesson = ""
+            for line in e["body"].splitlines():
+                if line.startswith("**场景**"):
+                    scene = line.replace("**场景**", "").strip("：: ").strip()
+                elif line.startswith("**教训**"):
+                    lesson = line.replace("**教训**", "").strip("：: ").strip()
+            events.append({
+                "type": "experience",
+                "date": date_str,
+                "time": e["title"][:8],
+                "scene": scene[:200],
+                "lesson": lesson[:300],
+            })
+    return events
+
+
+def _count_memory() -> dict:
+    """统计日记/经验/知识条数（用于成长概览卡片）"""
+    def _count_md(base: Path, recursive: bool = False) -> int:
+        if not base.exists():
+            return 0
+        total = 0
+        pattern = "**/*.md" if recursive else "*.md"
+        for f in base.glob(pattern):
+            try:
+                total += len(parse_markdown_entries(f.read_text(encoding="utf-8")))
+            except OSError:
+                continue
+        return total
+
+    return {
+        "diary": _count_md(ROOT / "memory" / "diary"),
+        "experience": _count_md(ROOT / "memory" / "experience"),
+        "knowledge": _count_md(ROOT / "memory" / "knowledge" / "languages", recursive=True),
+    }
+
+
+def _build_growth_timeline() -> dict:
+    """合并经验沉淀 + 记忆复用为统一时间线（倒序），附概览统计"""
+    reuse = _load_growth_reuse()
+    exps = _load_experience_events()
+    stats = _count_memory()
+    stats["reuse"] = len(reuse)
+
+    events: list[dict] = []
+    for r in reuse:
+        events.append({
+            "type": "reuse",
+            "ts": r.get("ts", ""),
+            "query": r.get("query", ""),
+            "hits": r.get("hits", []),
+        })
+    for e in exps:
+        # 经验事件用 date + time 合成可排序时间戳
+        if e.get("date"):
+            e["ts"] = f"{e['date']}T{e.get('time', '00:00:00')}"
+        else:
+            e["ts"] = ""
+    events.extend(exps)
+    events.sort(key=lambda e: e.get("ts", ""), reverse=True)
+
+    return {"stats": stats, "events": events}
+
+
 def _try_init_agent():
     """尝试初始化 Agent。成功返回 Agent，失败设置 _agent_error 并返回 None。"""
     global _agent, _agent_error
@@ -617,6 +718,10 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             self._serve_genome_changelog()
         elif self.path == "/genome/overview":
             self._serve_genome_overview()
+        elif self.path == "/growth":
+            self._serve_growth_page()
+        elif self.path == "/growth/timeline":
+            self._serve_growth_timeline()
         else:
             self._error(404, "Not Found")
 
@@ -1299,6 +1404,29 @@ class ZhixuzheHandler(BaseHTTPRequestHandler):
             "skills": skills,
             "ready": status["ready"],
         }, ensure_ascii=False).encode())
+
+    # ── 成长可视化页 ──
+
+    def _serve_growth_page(self):
+        """GET /growth → 成长可视化页（经验沉淀 + 记忆复用时间线）"""
+        session_id = self._read_session_cookie()
+        self.send_response(200)
+        self._cors()
+        if not session_id:
+            self._set_session_cookie(secrets.token_urlsafe(32))
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        path = WEB_DIR / "growth.html"
+        if path.exists():
+            self.wfile.write(_inject_version(path.read_text(encoding="utf-8")).encode())
+        else:
+            self.wfile.write("<h1>growth.html 缺失</h1>".encode("utf-8"))
+
+    def _serve_growth_timeline(self):
+        """GET /growth/timeline → 成长时间线 + 概览统计"""
+        self._ok()
+        self.wfile.write(json.dumps(_build_growth_timeline(), ensure_ascii=False).encode())
 
     # ── 学习任务 ──
 

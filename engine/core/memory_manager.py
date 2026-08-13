@@ -5,6 +5,9 @@ MemoryManager 是连接"记忆读取"与"Agent 上下文"的桥梁。
 将结果格式化为一段简洁文本，注入 system prompt。
 """
 
+import json
+from datetime import datetime
+
 from engine.core.memory_reader import MemoryReader
 from engine.config import config
 
@@ -12,6 +15,36 @@ from engine.config import config
 MAX_ENTRY_CHARS = config.memory.entry_max_chars
 # 提示前缀
 CONTEXT_PREFIX = "【相关历史经验】"
+
+# 记忆复用事件落盘文件名（成长可视化数据源，位于 .runtime/ 已被 gitignore 隔离）
+REUSE_FILE_NAME = "growth_reuse.jsonl"
+
+
+def _record_reuse(root, query: str, entries: list[dict]) -> None:
+    """把一次记忆命中落盘为复用事件（供 Web 成长时间线展示"越用越懂你"）。
+
+    落盘失败静默吞掉，绝不阻断主流程。
+    """
+    try:
+        runtime_dir = root / ".runtime"
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        event = {
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "query": query[:200],
+            "hits": [
+                {
+                    "source": e.get("source", ""),
+                    "date": e.get("date", ""),
+                    "score": e.get("score", 0),
+                    "preview": (e.get("content", "") or "")[:120],
+                }
+                for e in entries
+            ],
+        }
+        with open(runtime_dir / REUSE_FILE_NAME, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 
 class MemoryManager:
@@ -31,6 +64,8 @@ class MemoryManager:
         entries = self.reader.retrieve(user_input, max_entries)
         if not entries:
             return ""
+
+        _record_reuse(self.reader.root, user_input, entries)
 
         lines = [CONTEXT_PREFIX]
         for i, e in enumerate(entries):

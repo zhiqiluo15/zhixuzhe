@@ -63,6 +63,41 @@ norm_ok: true
 
 ---
 
+## [2026-08-13] v1.8.0 成长可视化：把「越用越懂你」变成看得见的时间线
+
+<!-- zx-meta
+type: feat
+rework: false
+recur: false
+regression: 0
+norm_ok: true
+-->
+
+### 需求背景
+
+用户提出「智序者手脚层太弱，下载者不知道用它干什么」。经辨析，根子不在工具数量，而在**定位错位**：智序者的手脚是「自省型器官」（记录自己、检索自己、复用教训），而非「生产力型器官」（帮用户干外部世界的活）。用户拍板方向：**自进化体验优先**——不做生产力工具（工具比不过大厂），而是把「越用越懂你」这个护城河做成下载者 30 秒就能亲眼看到的东西。
+
+### 新增
+
+1. **复用事件落盘**：[memory_manager.py](file:///t:/zhixuzhe/engine/core/memory_manager.py) `build_context` 命中记忆时，追加复用事件到 `.runtime/growth_reuse.jsonl`（含查询、命中来源/日期/相关度/预览），落盘失败静默不阻断主流程。`.runtime/` 已被 gitignore + pre-push 守卫隔离，不进公共仓库。
+2. **成长数据 API**：[web_server.py](file:///t:/zhixuzhe/engine/web_server.py) 新增 `GET /growth`（页面）与 `GET /growth/timeline`（时间线 JSON）——合并「经验沉淀」（扫描 memory/experience/）+「记忆复用」（读 growth_reuse.jsonl）为统一倒序时间线，附日记/经验/知识/复用四维概览。
+3. **成长可视化页**：[growth.html](file:///t:/zhixuzhe/engine/web/growth.html) —— 概览卡片 + 成长时间线（🔁 复用事件 / 💡 沉淀事件），空状态引导用户「去对话让它记住你」。
+4. **导航互链**：[memory.html](file:///t:/zhixuzhe/engine/web/memory.html) / [genome.html](file:///t:/zhixuzhe/engine/web/genome.html) 顶部栏新增「🌱 成长」入口。
+
+### 设计决策
+
+- **复用必须落盘才能「可见」**：记忆复用此前是瞬时无痕的（检索注入不落盘），只能展示「积累」不能展示「被用上」。落盘到 `.runtime/`（隔离、零污染）是展示「成长」的最小必要改动。
+- **时间线聚焦「经验」**：日记量大且是「经历」，经验是从经历提炼的「教训」，是自进化核心资产。时间线逐条展示经验沉淀 + 复用事件，日记/知识仅在概览统计，避免时间线噪音。
+- **纯本地、零 API Key**：成长闭环（沉淀→复用）不依赖 DeepSeek，下载者配 Key 前即可在 `/growth` 看到自己的记忆轨迹——这是 Claude Code 给不了的差异化体验。
+
+### 验证
+
+- 全量 153/153 测试通过（无回归）
+- `_build_growth_timeline` 正确返回：stats `{diary: 81, experience: 4, knowledge: 1, reuse: 0}`，4 条经验沉淀事件倒序
+- `_record_reuse` 隔离验证：命中落盘 `growth_reuse.jsonl` 格式正确（ts/query/hits）
+
+---
+
 ## [2026-08-13] v1.7.3 补测试：秩序分度量与下降检测核心逻辑
 
 <!-- zx-meta
