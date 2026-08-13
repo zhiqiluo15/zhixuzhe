@@ -96,6 +96,10 @@ norm_ok: true
 - `_build_growth_timeline` 正确返回：stats `{diary: 81, experience: 4, knowledge: 1, reuse: 0}`，4 条经验沉淀事件倒序
 - `_record_reuse` 隔离验证：命中落盘 `growth_reuse.jsonl` 格式正确（ts/query/hits）
 
+### 发布踩坑
+
+- 开源守卫 [guard_push.py](file:///t:/zhixuzhe/scripts/guard_push.py) 的 `KEY_ASSIGN_PATTERN` 将 `_VERSION_TOKEN = "__ZX_VERSION__"`（v1.2.6 就有的版本占位符常量）误判为「密钥赋值」，拦截本次 push。修复：值首字符必须为字母/数字——真实密钥值以下划线开头者罕见，占位符常量 `__XXX__` 被排除，不削弱真实密钥检测（已单独提交）。
+
 ---
 
 ## [2026-08-13] v1.7.3 补测试：秩序分度量与下降检测核心逻辑
