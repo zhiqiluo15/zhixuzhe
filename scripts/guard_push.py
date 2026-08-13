@@ -47,8 +47,9 @@ IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".svg", ".ico")
 # 密钥模式：sk- 后跟 16+ 位字母数字（DeepSeek/OpenAI 格式）
 SK_PATTERN = re.compile(r"\bsk-[A-Za-z0-9]{16,}\b")
 # 密钥赋值：api_key / apiKey / apikey 等 = 非空值（跳过空占位）
+# 值首字符必须为字母/数字，排除以下划线开头的占位符常量（如 _VERSION_TOKEN = "__ZX_VERSION__"）
 KEY_ASSIGN_PATTERN = re.compile(
-    r"(?:api[_-]?key|API[_-]?KEY|token|secret)\s*[:=]\s*[\"']?[A-Za-z0-9_\-]{12,}",
+    r"(?:api[_-]?key|API[_-]?KEY|token|secret)\s*[:=]\s*[\"']?[A-Za-z0-9][A-Za-z0-9_\-]{11,}",
     re.IGNORECASE,
 )
 
