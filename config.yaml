@@ -67,3 +67,13 @@ learning:
   max_repo_size_mb: 200                    # repos/ 总大小上限
   max_repo_depth: 1                        # git clone --depth
   max_source_files: 5                      # 最多读几个源码文件
+
+# ── 自进化（秩序分下降 → 经验库强化改写）──
+evolution:
+  enabled: true             # 是否启用秩序分下降检测（order_score 算分时自动附带）
+  window_size: 10           # 检测窗口：最近 N 条带 zx-meta 记录
+  min_entries: 5            # 样本门槛：窗口内至少 N 条才判定（防样本过少误判）
+  cooldown_entries: 10      # 冷却：距上次触发至少间隔 N 条新记录（防抖）
+  backfill_threshold: 0.3   # 经验相似度 < 此值 → backfill（补记经验）
+  rewrite_threshold: 0.6    # 经验相似度 >= 此值 → promote（自动加权）；介于两值之间 → rewrite
+  promote_boost: 1.5        # promote 检索加权系数（Phase 2 生效）

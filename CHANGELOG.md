@@ -63,6 +63,51 @@ norm_ok: true
 
 ---
 
+## [2026-08-13] v1.7.0 秩序分下降检测：经验库强化改写闭环（Phase 1）
+
+<!-- zx-meta
+type: feat
+rework: false
+recur: false
+regression: 0
+norm_ok: true
+-->
+
+### 需求背景
+
+v1.6.0 让秩序分"能被算出"，但分数只是一面镜子——算出来若不反哺行为，仍停留在"自记录"而非"自进化"。本次打通最后一环：**秩序分下降 → 定位违规 → 归因教训 → 匹配经验库 → 生成强化任务单**，让镜子变成方向盘。
+
+### 新增
+
+1. **时序落盘**：[order_score.py](file:///t:/zhixuzhe/scripts/order_score.py) 新增 `--history` 参数，每次扫描追加快照到 `.runtime/order_state.jsonl`（含违规条目标题，供归因），并重构为记录级解析（按 `## ` 分段，关联标题与 zx-meta，代码围栏示例自动跳过）。
+2. **下降检测 + 归因**：新增 [evolve_check.py](file:///t:/zhixuzhe/scripts/evolve_check.py)——
+   - 窗口判定（最近 N 条带 zx-meta 记录）+ 样本门槛 + 防抖/冷却
+   - 违规归因：`recur`/`rework`/`regression>0`/`norm_ok=false` 按严重度优先级触发
+   - 教训抽取：从记录正文命中「教训/踩坑/根因/复发」段落（剥离 markdown 标题标记）
+   - 经验匹配：轻量字符 bigram + Jaccard（独立实现，不加载语义模型）
+   - 生成任务单 `.runtime/evolution_tickets.jsonl`
+3. **任务单三动作**（按经验相似度阈值分流）：
+   - `backfill`（<0.3）：经验库无此教训 → 建议补记
+   - `rewrite`（0.3~0.6）：经验相关但不准确 → 建议改写
+   - `promote`（≥0.6）：教训已存在但没生效 → 建议强化检索加权（`auto=true`，Phase 2 自动执行）
+4. **配置**：[config.yaml](file:///t:/zhixuzhe/config.yaml) 新增 `evolution` 段（enabled/window_size/min_entries/cooldown_entries/相似度阈值/promote_boost）；[config.py](file:///t:/zhixuzhe/engine/config.py) 新增 `EvolutionConfig`。
+
+### 设计决策
+
+- **不自动改写经验内容**：经验是灵魂层私有资产，AI 直接改写有污染风险（项目已有"测试污染记忆库"教训）。backfill/rewrite 生成 `pending` 任务单待人审；promote 仅加检索权重、不改内容，故 `auto=true`。
+- **promote 自动、backfill/rewrite 人审**（用户确认）：加权重是温和可回退的"改变使用方式"，不改内容则无需人审；补记/改写触及内容，必须人审。
+- **检测入口 = order_score 自动附带**（用户确认）：算分后自动跑检测，不新增独立命令的记忆负担。
+- **Phase 1 只做"检测 + 任务单生成"**：promote 检索加权生效留 Phase 2，待任务单质量验证后再做（避免在指标有效性未证前引入检索排序改动）。
+
+### 验证
+
+- `python scripts/order_score.py --history`：正常算分 + 落盘 + 自动附带检测（当前样本 1 < 5，正确跳过）
+- 隔离端到端：构造 5 条含 `recur` 违规记录 → 正确生成 5 张 `backfill` 任务单，trigger/lesson/action 均正确
+- 核心函数单测：`_violation_trigger` 四类违规识别、`_decide_action` 阈值分流、`_extract_lesson` 标题剥离、`_jaccard` 均正确
+- 全量 126/126 测试通过（config 改动无回归）
+
+---
+
 ## [2026-08-13] v1.6.0 自进化目标函数第一维：秩序分度量（zx-meta + 扫描器）
 
 <!-- zx-meta

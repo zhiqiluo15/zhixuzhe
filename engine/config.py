@@ -228,6 +228,18 @@ class LearningConfig:
 
 
 @dataclass
+class EvolutionConfig:
+    """自进化配置（秩序分下降 → 经验库强化改写）"""
+    enabled: bool = True
+    window_size: int = 10            # 检测窗口：最近 N 条带 zx-meta 记录
+    min_entries: int = 5             # 样本门槛：窗口内至少 N 条才判定
+    cooldown_entries: int = 10       # 冷却：距上次触发至少间隔 N 条新记录
+    backfill_threshold: float = 0.3  # 经验相似度 < 此值 → backfill
+    rewrite_threshold: float = 0.6   # 经验相似度 >= 此值 → promote；之间 → rewrite
+    promote_boost: float = 1.5       # promote 检索加权系数（Phase 2 生效）
+
+
+@dataclass
 class Config:
     """智序者全局配置"""
     model: ModelConfig = field(default_factory=ModelConfig)
@@ -237,6 +249,7 @@ class Config:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
+    evolution: EvolutionConfig = field(default_factory=EvolutionConfig)
 
 
 def load_config(path: Path | str | None = None) -> Config:
@@ -321,6 +334,12 @@ def load_config(path: Path | str | None = None) -> Config:
         cfg.learning = LearningConfig(**{
             k: v for k, v in data["learning"].items()
             if k in LearningConfig.__dataclass_fields__
+        })
+
+    if "evolution" in data:
+        cfg.evolution = EvolutionConfig(**{
+            k: v for k, v in data["evolution"].items()
+            if k in EvolutionConfig.__dataclass_fields__
         })
 
     return cfg
