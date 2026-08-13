@@ -39,7 +39,7 @@ norm_ok: true
 
 | 字段 | 含义 | 取值 | 缺省 |
 |------|------|------|------|
-| `type` | 变更类型 | `feat` / `fix` / `refactor` / `docs` / `revert` | `unknown` |
+| `type` | 变更类型 | `feat` / `fix` / `refactor` / `docs` / `test` / `revert` | `unknown` |
 | `rework` | 是否推翻旧设计/返工 | `true` / `false` | `false` |
 | `recur` | 是否重犯了已记录教训（重复踩坑） | `true` / `false` | `false` |
 | `regression` | 本次引入的回归缺陷数 | `0..n` | `0` |
@@ -60,6 +60,32 @@ norm_ok: true
 ```
 
 旧记录无元数据块，扫描器自动跳过、不计入分母（分母 = 带 zx-meta 块的条目数）。
+
+---
+
+## [2026-08-13] v1.7.3 补测试：秩序分度量与下降检测核心逻辑
+
+<!-- zx-meta
+type: test
+rework: false
+recur: false
+regression: 0
+norm_ok: true
+-->
+
+### 需求背景
+
+深度体检 P4 项——[order_score.py](file:///t:/zhixuzhe/scripts/order_score.py) 与 [evolve_check.py](file:///t:/zhixuzhe/scripts/evolve_check.py) 承载自进化核心逻辑（记录解析、秩序分计算、违规归因、经验匹配、阈值分流），却零测试覆盖，仅靠临时命令验证。
+
+### 新增
+
+1. [test_order_score.py](file:///t:/zhixuzhe/engine/tests/test_order_score.py) 15 个用例：记录级解析（标题↔meta 关联、示例块跳过、缺省字段补齐）、`_to_bool`/`_to_int`、秩序分计算（满分/含违规/空/类型分布）、报告格式化
+2. [test_evolve_check.py](file:///t:/zhixuzhe/engine/tests/test_evolve_check.py) 12 个用例：分词/Jaccard、经验分段（含 `###` 子标题不误切）、教训抽取（剥离标题/回退）、违规归因（优先级/四类/无）、动作阈值分流（含边界）、建议构建
+3. zx-meta `type` 枚举补充 `test` 类型（[order_score.py](file:///t:/zhixuzhe/scripts/order_score.py) TYPE_ORDER + CHANGELOG 规范区同步）
+
+### 验证
+
+- 全量 153/153 测试通过（126 原有 + 27 新增），无回归
 
 ---
 

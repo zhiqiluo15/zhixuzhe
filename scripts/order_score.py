@@ -60,7 +60,7 @@ DEFAULTS = {
 }
 
 # 合法的 type 取值（用于分类统计排序展示）
-TYPE_ORDER = ("feat", "fix", "refactor", "docs", "revert", "unknown")
+TYPE_ORDER = ("feat", "fix", "refactor", "docs", "test", "revert", "unknown")
 
 # 判定"违规"的字段（用于归因：这些字段为 true/正数即视为秩序失效信号）
 VIOLATION_FIELDS = ("rework", "recur", "regression", "norm_ok")
