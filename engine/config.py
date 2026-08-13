@@ -157,9 +157,9 @@ class ContextConfig:
 
 @dataclass
 class AgentConfig:
-    max_tool_rounds: int = 10
+    max_tool_rounds: int = 30
     max_tool_output_chars: int = 32000
-    confirm_tools: list[str] = field(default_factory=lambda: ["run_shell"])
+    confirm_tools: list[str] = field(default_factory=lambda: ["run_shell", "batch_files"])
     auto_task: bool = True
     context: ContextConfig = field(default_factory=ContextConfig)
 
@@ -168,7 +168,7 @@ class AgentConfig:
 class TaskConfig:
     max_steps: int = 8
     plan_retries: int = 3
-    max_tool_rounds: int = 15
+    max_tool_rounds: int = 25
 
 
 @dataclass

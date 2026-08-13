@@ -269,7 +269,7 @@ def main() -> int:
         # 自动附带秩序分下降检测（若启用）
         try:
             from evolve_check import run_check
-            run_check(ROOT)
+            run_check(ROOT, records=records)
         except Exception as exc:  # 检测失败绝不影响算分主流程
             print(f"[order_score] 秩序分下降检测跳过: {exc}")
 

@@ -35,7 +35,6 @@ LESSON_KEYWORDS = ("教训", "踩坑", "根因", "复发", "坑")
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from engine.config import config  # noqa: E402
-from order_score import parse_records  # noqa: E402
 
 
 # ── 轻量分词与相似度（独立实现，避免加载语义检索模型）──
@@ -173,20 +172,30 @@ def _build_suggestion(action: str, lesson: str, sim: float | None, target: dict 
     return f"经验相关但不完整，建议改写为：{lesson[:150]}"
 
 
-def run_check(root: Path = ROOT) -> int:
-    """执行秩序分下降检测与任务单生成，返回生成的 ticket 数。"""
+def run_check(root: Path = ROOT, records: list[dict] | None = None) -> int:
+    """执行秩序分下降检测与任务单生成，返回生成的 ticket 数。
+
+    Args:
+        root: 项目根（用于定位经验库/任务单文件）。
+        records: 已解析的带 zx-meta 变更记录；为 None 时自行解析 CHANGELOG。
+                 order_score 调用时传入已解析结果，避免重复解析与循环导入。
+    """
     cfg = config.evolution
     if not cfg.enabled:
         return 0
 
-    try:
-        text = CHANGELOG.read_text(encoding="utf-8")
-    except OSError as exc:
-        print(f"[evolve_check] 无法读取 CHANGELOG: {exc}", file=sys.stderr)
-        return 0
+    if records is None:
+        # 独立运行时才延迟导入 order_score（此时非 __main__，无双重加载）
+        from order_score import parse_records
+
+        try:
+            text = CHANGELOG.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"[evolve_check] 无法读取 CHANGELOG: {exc}", file=sys.stderr)
+            return 0
+        records = parse_records(text)
 
     # CHANGELOG 记录为倒序（最新在前），取最近窗口
-    records = parse_records(text)
     total = len(records)
     window = records[: cfg.window_size]
 

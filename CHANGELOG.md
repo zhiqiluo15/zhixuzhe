@@ -63,6 +63,44 @@ norm_ok: true
 
 ---
 
+## [2026-08-13] v1.7.2 深度体检修复：配置默认值漂移 + 循环导入消除
+
+<!-- zx-meta
+type: fix
+rework: false
+recur: true
+regression: 0
+norm_ok: true
+-->
+
+### 需求背景
+
+全面深度体检发现 4 个隐患，本次修复其中 3 个（P1+P2+P3）：
+
+1. **P1 安全边界**：[config.py](file:///t:/zhixuzhe/engine/config.py) `confirm_tools` 默认值缺 `batch_files`——若 config.yaml 缺失，批量破坏性操作（delete/move/rename）会绕过 HITL 人审。
+2. **P2 配置漂移**：`agent.max_tool_rounds`（默认 10 vs yaml 30）、`task.max_tool_rounds`（默认 15 vs yaml 25）——config.py dataclass 默认值未随 v1.5.1/v1.2.1 调阈值时同步更新。
+3. **P3 循环导入**：[evolve_check.py](file:///t:/zhixuzhe/scripts/evolve_check.py) 顶部 `from order_score import parse_records`，而 [order_score.py](file:///t:/zhixuzhe/scripts/order_score.py) 以 `__main__` 运行时再 `import evolve_check`，导致 order_score.py 二次加载。
+
+### 修复
+
+1. **P1**：`confirm_tools` 默认值改为 `["run_shell", "batch_files"]`
+2. **P2**：`agent.max_tool_rounds` 默认 10→30、`task.max_tool_rounds` 默认 15→25
+3. **P3**：`run_check()` 新增 `records` 参数，order_score 调用时传入已解析结果；evolve_check 仅在独立运行时（records 为 None）才延迟导入 order_score 自行解析
+
+### 教训（重要）
+
+- **配置有两份源（dataclass 默认值 + config.yaml）必然漂移**——这是 v1.2.7 记录过"max_tokens 默认值与 yaml 不一致"同类教训的**重犯**（本次标记 `recur: true`）。改配置时两份都要同步。
+- **两个脚本互相 import 是双重加载陷阱**：`python scripts/x.py` 让 x 以 `__main__` 加载，此时另一个脚本 `import x` 会二次加载。解法是"调用方传已算好的数据，被调方延迟导入"。
+
+### 验证
+
+- 默认 `confirm_tools` = `['run_shell', 'batch_files']`、`agent.max_tool_rounds`=30、`task.max_tool_rounds`=25
+- `import evolve_check` 后 `order_score` 不再被加载（False），双重加载消除
+- `python scripts/order_score.py --history` 与 `python scripts/evolve_check.py` 独立运行均正常
+- 全量 126/126 测试通过
+
+---
+
 ## [2026-08-13] v1.7.1 元信息单一来源：消除 factory 工具数硬编码
 
 <!-- zx-meta
