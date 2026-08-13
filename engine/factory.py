@@ -12,8 +12,9 @@ from engine.core.loop import Agent
 def create_agent(project_root: Path) -> Agent:
     """创建并返回一个完全组装的 Agent 实例。
 
-    包括：大脑、11 个工具、5 个技能、记忆组件（Recorder / HistoryStore / MemoryManager）、
+    包括：大脑、工具层、技能层、记忆组件（Recorder / HistoryStore / MemoryManager）、
     知识学习组件（TaxonomyManager / ProfileManager）。
+    工具/技能的数量以 ToolRegistry / SkillRegistry 为准，勿在此硬编码数字。
 
     Args:
         project_root: 项目根目录路径

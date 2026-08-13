@@ -63,6 +63,36 @@ norm_ok: true
 
 ---
 
+## [2026-08-13] v1.7.1 元信息单一来源：消除 factory 工具数硬编码
+
+<!-- zx-meta
+type: docs
+rework: false
+recur: true
+regression: 0
+norm_ok: true
+-->
+
+### 需求背景
+
+[factory.py](file:///t:/zhixuzhe/engine/factory.py) 的 `create_agent` docstring 硬编码"11 个工具"，但实际已注册 13 个工具（`make_video`/`classify_images` 加入后未更新）。这是 v1.2.11 记录过的"文档与实现严重不符"同类教训的**重犯**——元信息（工具/技能数）散落硬编码，必然随迭代漂移。
+
+### 修改
+
+docstring 不再写死数字，改为"工具/技能的数量以 ToolRegistry / SkillRegistry 为准"。项目内其余展示工具/技能数的地方（web_server / __main__）早已用 `agent.tool_count`/`agent.skill_count` 动态取，本次收敛最后一处硬编码。
+
+### 教训（重要）
+
+- 任何"系统自描述"（工具数、技能数、版本号）都不得硬编码，必须从 registry/常量动态取。智序者已开源到 GitHub，不能埋隐患。
+- 本次标记 `recur: true`：这是 v1.2.11 已记录教训的重犯，诚实反映秩序分而非粉饰。
+
+### 验证
+
+- `factory.py` docstring 无残留硬编码数字
+- 全量 126/126 测试通过（仅 docstring 改动，无逻辑变化）
+
+---
+
 ## [2026-08-13] v1.7.0 秩序分下降检测：经验库强化改写闭环（Phase 1）
 
 <!-- zx-meta
